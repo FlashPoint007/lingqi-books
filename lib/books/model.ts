@@ -1,5 +1,5 @@
-export type Source = 'bangumi' | 'mangadex' | 'narou' | 'local';
-export type Work = { id:string; source:Source; sourceId:string; title:string; originalTitle:string; kind:'novel'|'manga'; cover:string; summary:string; author:string; tags:string[]; score?:number; votes?:number; url:string; language:string; readable:boolean; updated?:string };
+export type Source = 'bangumi' | 'mangadex' | 'narou' | 'local' | 'bridge';
+export type Work = { id:string; source:Source; sourceId:string; title:string; originalTitle:string; kind:'novel'|'manga'; cover:string; summary:string; author:string; tags:string[]; score?:number; votes?:number; url:string; language:string; readable:boolean; provider?:string; updated?:string };
 export type Chapter = { id:string; title:string; number:string; language:string; groups:{name:string;url:string}[]; externalUrl?:string; pages:number };
 export type SourceStatus = {source:string;ok:boolean;message:string};
 export type Catalog = {items:Work[];total:number;statuses:SourceStatus[]};

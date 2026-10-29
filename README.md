@@ -70,3 +70,7 @@ pnpm build
 ## License
 
 MIT。第三方依赖保留自身许可证；作品元数据、封面、正文和漫画图片不属于本项目代码许可范围。
+
+## 在线正文与独立内容服务
+
+已补齐在线目录、按章正文、续读与扩展桥接。部署方式和配置格式见 [content-services.md](docs/content-services.md)。当前生产环境未配置内容服务；中文日轻候选站点尚未核验授权或实源可用性。LNReader 只支持经过适配构建的可信 ESM 模块，Suwayomi 适配等待真实实例验收，Maki 未实现。

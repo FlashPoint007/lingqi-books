@@ -1,0 +1,16 @@
+import {z} from 'zod';
+import type {Work} from './model';
+const https=z.string().url().refine(v=>new URL(v).protocol==='https:');
+const sourceSchema=z.object({id:z.string().regex(/^[a-z0-9_-]{1,40}$/),name:z.string().max(100),kind:z.enum(['novel','manga']),language:z.string().max(40),rightsUrl:https,attribution:z.string().min(1).max(500)});
+const workSchema=z.object({id:z.string().min(1).max(1500),source:z.string(),title:z.string().min(1).max(300),originalTitle:z.string().default(''),kind:z.enum(['novel','manga']),cover:z.union([https,z.literal('')]).default(''),summary:z.string().max(10000).default(''),author:z.string().max(200).default(''),tags:z.array(z.string()).max(20).default([]),url:https,language:z.string(),readable:z.boolean()});
+export function bridgeConfigured(){return !!process.env.CONTENT_BRIDGE_URL&&!!process.env.CONTENT_BRIDGE_TOKEN;}
+export async function bridgeRequest(path:string,params:Record<string,string>={}){
+ if(!bridgeConfigured())throw new Error('尚未配置内容服务：需要运营者提供服务地址与访问密钥');
+ const base=new URL(process.env.CONTENT_BRIDGE_URL!);if(base.protocol!=='https:'||base.username||base.password||base.search||base.hash)throw new Error('内容服务配置无效');
+ const u=new URL(base.href.replace(/\/$/,'')+path);u.search=new URLSearchParams(params).toString();
+ try{const r=await fetch(u,{headers:{Authorization:`Bearer ${process.env.CONTENT_BRIDGE_TOKEN}`,Accept:'application/json'},signal:AbortSignal.timeout(15000),redirect:'manual'});if(!r.ok)throw new Error();const raw=await r.text();if(raw.length>2000000)throw new Error();return JSON.parse(raw);}catch{throw new Error('内容服务暂时不可用，请稍后重试');}
+}
+export async function bridgeSources(){const d=await bridgeRequest('/v1/sources');return z.array(sourceSchema).max(100).parse(d.sources);}
+export async function bridgeSearch(q:string,page:number,kind:string){const allowed=await bridgeSources();const d=await bridgeRequest('/v1/search',{q,page:String(page),kind});const list=z.array(workSchema).max(180).parse(d.items);return {items:list.filter(w=>allowed.some(s=>s.id===w.source&&s.kind===w.kind)&&w.kind===kind).map(w=>({...w,id:'bridge:'+w.id,source:'bridge',sourceId:w.id,provider:allowed.find(s=>s.id===w.source)?.name}) as Work),total:z.number().int().nonnegative().parse(d.total)};}
+export async function bridgeChapters(id:string,page:number){const d=await bridgeRequest('/v1/chapters',{id,page:String(page)});return z.object({total:z.number().int().nonnegative(),items:z.array(z.object({id:z.string().min(1).max(2000),title:z.string().max(300),number:z.string(),language:z.string(),groups:z.array(z.object({name:z.string(),url:https})),pages:z.number().int().nonnegative()})).max(100)}).parse(d);}
+export async function bridgeContent(id:string,workId:string){const d=await bridgeRequest('/v1/content',{id,workId});const result= z.object({text:z.string().max(1000000).optional(),images:z.array(https).max(500).default([]),imageCount:z.number().int().min(1).max(500).optional(),sourceUrl:https,attribution:z.string().min(1).max(500),rightsUrl:https}).refine(d=>!!d.text?.trim()||d.images.length>0||!!d.imageCount).parse(d);return {...result,images:result.imageCount?Array.from({length:result.imageCount},(_,index)=>'/api/content-image?'+new URLSearchParams({id,workId,index:String(index)})):result.images};}

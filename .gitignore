@@ -43,3 +43,8 @@ yarn-error.log*
 
 # OS metadata
 .DS_Store
+
+# Operator-managed content bridge configuration and dependencies
+/services/content-bridge/node_modules/
+/services/content-bridge/config.json
+/services/content-bridge/data/*.json
