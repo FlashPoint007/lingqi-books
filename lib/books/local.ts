@@ -1,0 +1,4 @@
+export type LocalBook={id:string;title:string;chapters:{title:string;text:string}[]};
+async function db(){return new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('lingqi-books',1);r.onupgradeneeded=()=>r.result.createObjectStore('books',{keyPath:'id'});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+export async function saveBook(book:LocalBook){const d=await db();return new Promise<void>((resolve,reject)=>{const t=d.transaction('books','readwrite');t.objectStore('books').put(book);t.oncomplete=()=>{d.close();resolve();};t.onerror=()=>{d.close();reject(t.error);};});}
+export async function getBook(id:string){const d=await db();return new Promise<LocalBook|undefined>((resolve,reject)=>{const r=d.transaction('books').objectStore('books').get(id);r.onsuccess=()=>{d.close();resolve(r.result);};r.onerror=()=>{d.close();reject(r.error);};});}

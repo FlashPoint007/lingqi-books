@@ -1,0 +1,15 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import ts from 'typescript';
+async function load(path){const source=await readFile(new URL(path,import.meta.url),'utf8');const {outputText}=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}});return import('data:text/javascript;base64,'+Buffer.from(outputText).toString('base64'));}
+const {splitText,normalizeTitle}=await load('../lib/books/model.ts');
+const {bangumiWork,mangaWork,groupBlocked,upstream}=await load('../lib/books/sources.ts');
+test('UTF8 BOM, CRLF, chapter boundaries preserve actual text',()=>{const r=splitText('\uFEFF序章\r\n雨落在窗外。\r\n第一章 出发\r\n我拿起那本书。\r\n第二章 归来\r\n故事继续。');assert.equal(r.length,3);assert.equal(r[0].title,'序章');assert.equal(r[1].text,'我拿起那本书。');assert.equal(r[2].title,'第二章 归来');});
+test('unheaded TXT does not lose content',()=>{assert.deepEqual(splitText('第一行\n第二行'),[{title:'开始阅读',text:'第一行\n第二行'}]);});
+test('title matching normalization does not conflate volumes',()=>{assert.equal(normalizeTitle('ＡＢＣ：第一卷'),'abc第一卷');assert.notEqual(normalizeTitle('作品1'),normalizeTitle('作品2'));});
+test('Bangumi keeps source ID and score attribution',()=>{const w=bangumiWork({id:42,name:'原題',name_cn:'译名',platform:'漫画',rating:{score:8.3,total:125},infobox:[{key:'作者',value:'甲'}]});assert.equal(w.id,'bangumi:42');assert.equal(w.kind,'manga');assert.equal(w.readable,false);assert.equal(w.votes,125);assert.equal(w.author,'甲');});
+test('MangaDex Chinese title and cover relationship normalization',()=>{const w=mangaWork({id:'sample',attributes:{title:{en:'Example'},altTitles:[{'zh-hk':'繁體名'}],description:{zh:'简介'},tags:[]},relationships:[{type:'cover_art',attributes:{fileName:'cover.jpg'}},{type:'author',attributes:{name:'作者'}}]});assert.equal(w.title,'繁體名');assert.equal(w.summary,'简介');assert.equal(w.author,'作者');assert.match(w.cover,/cover\.jpg\.256\.jpg$/);});
+test('scanlation opt-out prevents group visibility',()=>{process.env.MANGADEX_BLOCKED_GROUPS='a, b';assert.equal(groupBlocked([{type:'scanlation_group',id:'b'}]),true);assert.equal(groupBlocked([{type:'manga',id:'b'}]),false);delete process.env.MANGADEX_BLOCKED_GROUPS;});
+test('upstream caches success, coalesces concurrent requests, disables redirects',async()=>{const original=globalThis.fetch;let calls=0;globalThis.fetch=async(u,opts)=>{calls++;assert.equal(opts.redirect,'manual');return Response.json({ok:true});};try{await Promise.all([upstream('https://example.invalid/test'),upstream('https://example.invalid/test')]);await upstream('https://example.invalid/test');assert.equal(calls,1);}finally{globalThis.fetch=original;}});
+test('upstream errors do not become cached successes',async()=>{const original=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;return new Response('',{status:429});};try{await assert.rejects(upstream('https://example.invalid/rate'),/频繁/);await assert.rejects(upstream('https://example.invalid/rate'),/频繁/);assert.equal(calls,2);}finally{globalThis.fetch=original;}});
