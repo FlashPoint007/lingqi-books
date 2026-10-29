@@ -48,3 +48,4 @@ yarn-error.log*
 /services/content-bridge/node_modules/
 /services/content-bridge/config.json
 /services/content-bridge/data/*.json
+/.reader-test-*/

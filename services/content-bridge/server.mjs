@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {richText} from './richtext.mjs';
 import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
@@ -25,14 +26,12 @@ async function chapters(s,id){let a;if(s.type==='catalog'){const b=s.books.find(
  else if(s.type==='lnreader'){const b=await s.plugin.parseNovel(id);a=b.chapters||[];if(b.totalPages>1){if(typeof s.plugin.parsePage!=='function'||b.totalPages>100)throw new Error('Unsupported chapter pagination');for(let p=2;p<=b.totalPages;p++)a.push(...await s.plugin.parsePage(id,p));}}
  else {await suWork(s,id);a=await su(s,`/manga/${id}/chapters?onlineFetch=true`);a=a.map(c=>({...c,path:String(c.index),name:c.name})).sort((a,b)=>(a.chapterNumber||0)-(b.chapterNumber||0));}
  if(a.length>20000)throw new Error('Too many chapters');return a.map((c,i)=>({id:pack(s.id,[id,c.path]),title:c.name||c.title||`第 ${i+1} 章`,number:String(c.chapterNumber||i+1),language:s.language||'zh',groups:[{name:s.attribution,url:s.rightsUrl}],pages:0}));}
-// HTML is converted to plain text in an isolated parser before reaching React.
-async function plain(html){const {load}=await import('cheerio');const $=load(html);$('script,style,iframe,object,svg').remove();$('br').replaceWith('\n');$('p,div,h1,h2,h3,li').append('\n');return $.root().text().trim();}
-async function content(s,workId,path){const list=await chapters(s,workId);if(!list.some(c=>c.id===pack(s.id,[workId,path])))throw new Error('Chapter does not belong to work');let text,images=[],imageCount;let sourceUrl=s.site;
+async function content(s,workId,path){const list=await chapters(s,workId);if(!list.some(c=>c.id===pack(s.id,[workId,path])))throw new Error('Chapter does not belong to work');let text,images=[],imageCount,blocks;let sourceUrl=s.site;
  if(s.type==='catalog'){const b=s.books.find(b=>b.id===workId);text=b.chapters[Number(path)].text;sourceUrl=b.url||s.site;}
- else if(s.type==='lnreader'){text=await plain(await s.plugin.parseChapter(path));sourceUrl=s.plugin.resolveUrl?s.plugin.resolveUrl(path,false):new URL(path,s.site).href;}
+ else if(s.type==='lnreader'){sourceUrl=s.plugin.resolveUrl?s.plugin.resolveUrl(path,false):new URL(path,s.site).href;blocks=richText(await s.plugin.parseChapter(path),sourceUrl,u=>u.protocol==='https:');text=blocks.filter(b=>b.type==='text').map(b=>b.text).join('\n');}
  else {const d=await su(s,`/manga/${workId}/chapter/${path}`);if(!Number.isInteger(d.pageCount)||d.pageCount<1||d.pageCount>500)throw new Error('Invalid pages'); // A separately protected image gateway is required, never expose Suwayomi credentials.
  imageCount=d.pageCount;images=[];sourceUrl=(await suWork(s,workId)).url;}
- if(text!==undefined&&(typeof text!=='string'||!text.trim()||text.length>1000000))throw new Error('Invalid text');return {text,images,imageCount,sourceUrl:safe(sourceUrl),attribution:s.attribution,rightsUrl:s.rightsUrl};}
+ if(text!==undefined&&(typeof text!=='string'||(!text.trim()&&!blocks?.length)||text.length>1000000))throw new Error('Invalid text');return {blocks,text,images,imageCount,sourceUrl:safe(sourceUrl),attribution:s.attribution,rightsUrl:s.rightsUrl};}
 export function createServer(){let active=0;return http.createServer(async(req,res)=>{res.setHeader('Content-Type','application/json; charset=utf-8');res.setHeader('Cache-Control','no-store');const auth=key(req.headers.authorization),expected=key('Bearer '+token);if(auth.length!==expected.length||!timingSafeEqual(auth,expected)){res.writeHead(401);res.end('{"error":"Unauthorized"}');return;}if(req.method!=='GET'){res.writeHead(405);res.end('{}');return;}if(active>=8){res.writeHead(429);res.end('{}');return;}active++;try{const u=new URL(req.url,'http://localhost');const page=Number(u.searchParams.get('page')||1);if(!Number.isInteger(page)||page<1||page>100)throw new Error('Invalid page');let data;
  if(u.pathname==='/v1/sources')data={sources:[...sources.values()].map(s=>({id:s.id,name:s.name,kind:s.kind,language:s.language||'zh',rightsUrl:s.rightsUrl,attribution:s.attribution}))};
  else if(u.pathname==='/v1/search'){const q=u.searchParams.get('q')||'';if(q.length>100)throw new Error('Invalid query');const selected=[...sources.values()].filter(s=>s.kind===u.searchParams.get('kind'));const r=await Promise.allSettled(selected.map(s=>search(s,q,page)));if(r.some(x=>x.status==='rejected'))throw new Error('Source failed');const a=r.map(x=>x.value);data={items:a.flatMap(x=>x.items),total:a.reduce((n,x)=>n+x.total,0)};}
