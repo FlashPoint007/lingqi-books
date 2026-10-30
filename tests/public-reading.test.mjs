@@ -17,7 +17,7 @@ const bh='<a href="javascript:enterBookApp(\'样本篇\',\'/book/9001\')"><div c
 test('SF metadata keeps the actual title, labels Chinese originals, and scopes search results',()=>{
  const d=sf.parseSfDetail('910001',detail);assert.equal(d.work.title,'星空邮局');assert.equal(d.work.author,'样本作者');assert.equal(d.coverUrl,'https://rs.sfacg.com/sample-cover.jpg');assert.ok(d.work.tags.includes('中文原创'));assert.match(d.work.cover,/workId=910001/);
  const list=sf.parseSfSearch('<a href="https://book.sfacg.com/Novel/910001">星空邮局</a><a href="/Novel/910001/">重复</a><a href="https://evil.test/Novel/2/">假来源</a>');assert.equal(list.length,1);assert.equal(list[0].sourceId,'910001');
- assert.equal(sf.sfSearchKey('梦 A'),' %u68a6%20A'.trim());assert.throws(()=>sf.parseSfDetail('910001','<title>登录</title>'),e=>e.code==='parse_changed');
+ assert.equal(sf.sfSearchKey('梦 A'),'%u68a6%20A');assert.throws(()=>sf.parseSfDetail('910001','<title>登录</title>'),e=>e.code==='parse_changed');
 });
 test('SF catalogs discard cross-work links, deduplicate and lock VIP entries',()=>{
  const chapters=sf.parseSfChapters('910001',toc);assert.equal(chapters.length,2);assert.equal(chapters[0].id,'910001~10/11');assert.equal(chapters[0].locked,false);assert.equal(chapters[1].locked,true);assert.equal(chapters[1].id,'910001~vip/12');
@@ -28,6 +28,10 @@ test('SF preserves paragraph and illustration order, removes executable HTML and
  assert.deepEqual(blocks.map(b=>b.type),['text','image','text']);assert.equal(blocks[1].url,'https://rs.sfacg.com/art.jpg');assert.ok(!JSON.stringify(blocks).includes('bad()'));
  assert.throws(()=>sf.parseSfContent('<div id="ChapterBody"><img src="https://evil.test/art.jpg"></div>','https://book.sfacg.com/'),/图床/);
  assert.throws(()=>sf.parseSfContent('<div class="pay-section"></div><div id="ChapterBody">付费内容</div>','https://book.sfacg.com/'),e=>e.code==='login_required');
+});
+test('SF discovery keeps pagination when the next-page control has a numeric label',async()=>{
+ const original=globalThis.fetch;process.env.PUBLIC_READING_SOURCES='sfacg';globalThis.fetch=async url=>{const u=new URL(url);assert.equal(u.pathname,'/List/');assert.equal(u.searchParams.get('PageIndex'),'2');return new Response('<ul><li><a href="/Novel/910003/">第二页作品</a></li></ul><li class="pagebarNext"><a href="/List/?PageIndex=3">1</a></li>');};
+ try{const d=await pub.publicSearch('sfacg','',2);assert.equal(d.items[0].sourceId,'910003');assert.equal(d.hasMore,true);}finally{globalThis.fetch=original;delete process.env.PUBLIC_READING_SOURCES;}
 });
 test('official manga catalogs enforce work identity, ordering and image origins',()=>{
  assert.equal(pub.parseBh3Books(bh)[0].sourceId,'9001');assert.throws(()=>pub.parseBh3Books('<h1>首页</h1>'),e=>e.code==='parse_changed');

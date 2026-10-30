@@ -29,7 +29,7 @@ export async function sfSearch(q:string,page:number){
  const url=q?new URL(`https://s.sfacg.com/?Key=${sfSearchKey(q)}&S=1&SS=0&PageIndex=${page}`):new URL(`/List/?PageIndex=${page}`,SITE);
  const {html}=await htmlPage(url),items=parseSfSearch(html),$=load(html);
  if(!items.length){if(q&&/没有找到|未找到|无符合|沒有找到|搜索结果.{0,10}0/.test($('body').text()))return {items:[],total:0,hasMore:false};throw new SourceError('parse_changed','SF 未返回可识别的作品列表','可以使用作品数字 ID 查找，或检查来源页面结构。');}
- const hasMore=$('a[href]').toArray().some(e=>/下一[页頁]|next/i.test($(e).text()));return {items,total:(page-1)*18+items.length+(hasMore?1:0),hasMore};
+ const hasMore=$('.pagebarNext a[href]').length>0||$('a[href]').toArray().some(e=>/下一[页頁]|next/i.test($(e).text()));return {items,total:(page-1)*18+items.length+(hasMore?1:0),hasMore};
 }
 export function parseSfDetail(id:string,html:string){
  numeric(id);const $=load(html),heading=$('h1.title').first().clone();heading.find('.tag').remove();const title=heading.text().trim(),author=$('.author-name').first().text().trim();
@@ -43,7 +43,7 @@ export function parseSfChapters(id:string,html:string){
  const out:Chapter[]=[],seen=new Set<string>();$('.catalog-list a[href]').each((_,el)=>{const a=$(el);let u:URL;try{u=publicUrl(a.attr('href')||'',SITE);}catch{return;}if(u.origin!==SITE)return;
  const free=u.pathname.match(new RegExp(`^/Novel/${id}/(\\d{1,12})/(\\d{1,12})/$`)),vip=u.pathname.match(/^\/vip\/c\/(\d{1,12})\/?$/i);if(!free&&!vip)return;
  const cid=id+'~'+(free?free[1]+'/'+free[2]:'vip/'+vip![1]);if(seen.has(cid))return;const title=(a.attr('title')||a.text()).trim();if(!title)return;seen.add(cid);
- const section=a.closest('.story-catalog').find('.catalog-title').first().text().trim();out.push({id:cid,title:(section?section+' · ':'')+title,number:String(out.length+1),language:'zh',groups:[{name:'SF轻小说',url:SITE}],pages:0,locked:!!vip||a.find('.icn_vip,.vip').length>0||a.is('.icn_vip,.vip')});});
+ const section=a.closest('.story-catalog').find('.catalog-title').first().text().trim().replace(/^【[^】]+】\s*/, '');out.push({id:cid,title:(section?section+' · ':'')+title,number:String(out.length+1),language:'zh',groups:[{name:'SF轻小说',url:SITE}],pages:0,locked:!!vip||a.find('.icn_vip,.vip').length>0||a.is('.icn_vip,.vip')});});
  if(!out.length||out.length>20000)throw new SourceError('parse_changed','SF 目录为空或超过读取上限','请检查来源目录。');return out;
 }
 async function allChapters(id:string){numeric(id);return cached('sfacg:chapters:'+id,async()=>{await sfWork(id);return parseSfChapters(id,(await htmlPage(new URL(`/Novel/${id}/MainIndex/`,SITE))).html);});}
