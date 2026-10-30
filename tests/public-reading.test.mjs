@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','source-errors','network','sfacg','public-reading']){
+for(const name of ['model','source-errors','network','sfacg','mangabz','public-reading']){
  const source=(await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8')).replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
@@ -55,3 +55,18 @@ test('official manga serves only chapter-manifest pages, with bounded indices an
  }finally{globalThis.fetch=original;delete process.env.PUBLIC_READING_SOURCES;}
 });
 test('disabled public readers fail explicitly instead of returning successful empty catalogs',async()=>{delete process.env.PUBLIC_READING_SOURCES;await assert.rejects(pub.publicSearch('sfacg','',1),e=>e.code==='service_not_configured');assert.equal(pub.isPublicSource('__proto__'),false);});
+
+const bz=await import(path.join(dir,'mangabz.mjs'));
+test('MangaBz refuses crossed works, VIP chapters and executable image responses',()=>{
+ const session='var MANGABZ_MID=9001;var MANGABZ_CID=9002;var MANGABZ_IMAGE_COUNT=2;var MANGABZ_VIEWSIGN="sample";var MANGABZ_VIEWSIGN_DT="date";';
+ assert.equal(bz.parseBzSession(session,'9001','9002').count,2);
+ assert.throws(()=>bz.parseBzSession(session,'9003','9002'),/不匹配/);
+ assert.throws(()=>bz.parseBzSession('var isVip="True";'+session,'9001','9002'),e=>e.code==='login_required');
+ globalThis.bzExecuted=false;
+ assert.throws(()=>bz.parseBzPage('globalThis.bzExecuted=true','9001','9002'),/格式/);
+ assert.equal(globalThis.bzExecuted,false);delete globalThis.bzExecuted;
+ const packed = root=>"}('"+`var pix="${root}";var key='abc123';var pvalue=["/one.jpg"];`.replaceAll("'",String.fromCharCode(92)+"'")+"',25,0,''.split('|'))";
+ assert.equal(bz.parseBzPage(packed('https://image.mangabz.com/1/9001/9002'),'9001','9002').hostname,'image.mangabz.com');
+ assert.throws(()=>bz.parseBzPage(packed('https://evil.test/1/9001/9002'),'9001','9002'),/不匹配/);
+ assert.throws(()=>bz.parseBzPage(packed('https://image.mangabz.com/1/9003/9002'),'9001','9002'),/不匹配/);
+});

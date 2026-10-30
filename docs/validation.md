@@ -29,3 +29,11 @@
 - 回归样本新增目录归属、跨作品 / 跨域图片拒绝、VIP 请求前锁定、有序图文、页数完整性、数字标签翻页与配置关闭等检查。样本均为原创，未提交第三方正文。
 - 当前工作环境依赖安装因下载超时失败，本地完整测试和 TypeScript 检查未完成；只完成变更文件的 TS / TSX 语法转换检查。随后使用 Sites 远程构建与云浏览器生产验收，不把新增测试写为已通过。开发预览也因缺少依赖未启动。
 - Novelia / MangaBz 的服务端访问遇到 1010 阻断，停止探测并未启用。两项新增是中文原创补充，不代表新增日轻中文译文来源。
+
+## 2026-10-30 source retest
+
+- Dependency installation recovered; 38 automated tests passed; typecheck and local production build rerun for this version.
+- A descriptive LingqiBooks application User-Agent (no browser impersonation) returned actual MangaBz home, work, chapter and image data. Development probe: work 234, 162 catalog entries; chapter 525246, 15 pages; first JPEG returned 200 (491385 bytes). This does not certify all titles or pages.
+- MangaBz adapter reads public chapter data without evaluating source JavaScript, binds chapter IDs to the work catalog, rejects VIP chapters, and restricts picture origins and work/chapter paths.
+- Novelia n.novelia.cc homepage returned 200, but both anonymous list API variants returned 401 and `游客没有权限执行此操作`. It remains disabled; homepage access is insufficient.
+- Sites runs Workers, not a Docker host. The existing Maki (.NET) and Suwayomi (Java) services cannot run unchanged inside it; existing HTTP adapters still require an external instance.
