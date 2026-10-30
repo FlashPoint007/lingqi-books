@@ -16,7 +16,7 @@ export async function GET(req:Request){
  if(action==='reading-candidates'){
  if(source!=='bangumi'||!/^\d{1,10}$/.test(id))return Response.json({error:'作品参数无效'},{status:400});
  const raw=await upstream(`https://api.bgm.tv/v0/subjects/${id}`);if(raw.nsfw||raw.type!==1)throw new Error('不支持的作品');const w=bangumiWork(raw);
- const readers=readingSources(w.kind).map(s=>({id:s,search:(query:string)=>search(s,query,1,w.kind,'popular',''),chapters:async(work:string)=>{if(isPublicSource(s))return publicChapters(s,work,1);if(isNovelSource(s))return novelChapters(s,work,1);if(isReaderService(s))return serviceChapters(s,work,1);if(s==='mangadex')return chapters(work,1);return bridgeChapters(work,1);}}));
+ const readers=readingSources(w.kind).map(s=>({id:s,search:(query:string)=>search(s,query,1,w.kind,'popular',''),detail:isPublicSource(s)?(id:string)=>publicWork(s,id):undefined,chapters:async(work:string)=>{if(isPublicSource(s))return publicChapters(s,work,1);if(isNovelSource(s))return novelChapters(s,work,1);if(isReaderService(s))return serviceChapters(s,work,1);if(s==='mangadex')return chapters(work,1);return bridgeChapters(work,1);}}));
  return Response.json(await findReadingCandidates(w,readers),{headers:{'Cache-Control':'private, no-store'}});
  }
  if(action==='search'||action==='test'){

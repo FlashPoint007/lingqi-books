@@ -61,3 +61,12 @@
 - Bangumi detail pages query only configured reading providers for same-title works of the same media kind, require an unlocked inline chapter, and present choices for the user to verify. No same-title choice is auto-associated; unmatched works are explicitly unavailable. The hard-coded Wenku8 redirect was removed.
 - External-only manga chapters are disabled for inline reading. Offline adapters cannot be opened as normal reading providers from the source status page.
 - 47 automated tests passed, covering enabled-provider filtering, no fallback into disabled Wenku8, title/media identity, locked/external chapter rejection, and empty enabled-provider discovery. TypeScript check and local production build passed. Local installer output stalled during dependency downloads; checks ran successfully using the materialized dependencies directly after stopping the installer.
+
+## Reading request cancellation repair (2026-10-30)
+
+- Live browser verification found SF chapter loading could remain pending after a detail refresh canceled the first request. Chapter and reading-candidate effects now use the stable source and work ID, so a metadata refresh does not restart them.
+- The shared upstream cache now stores completed data only. It never hands a new Worker request an in-flight promise owned by an abandoned request. Added a regression test that leaves one reader pending and verifies a second reader completes and caches its own result.
+- Validation: 49 tests passed, TypeScript check and production build succeeded.
+
+- Live metadata verification also found an SF work titled “败犬女主太多了!” by 星下夏心 (602319), distinct from 雨森たきび’s novel. Novel candidates now fetch source detail and require matching verified author information as well as title and media kind; different or missing authors are excluded. The site does not claim the Japanese original is connected.
+- Both HTML-reader and JSON-metadata caches now store completed data only; regression tests cover stalled earlier requests without blocking a later reader.

@@ -1,14 +1,12 @@
 import type {Work,Chapter} from './model';
 const UA='LingqiBooks/0.1 (https://github.com/FlashPoint007/lingqi-books)';
 const cache=new Map<string,{until:number;data:any}>();
-const inFlight=new Map<string,Promise<any>>();
 export async function upstream(url:string,body?:unknown){
  const key=url+JSON.stringify(body||'');const hit=cache.get(key);if(hit&&hit.until>Date.now())return hit.data;
- if(inFlight.has(key))return inFlight.get(key);
  const task=(async()=>{const res=await fetch(url,{method:body?'POST':'GET',headers:{'User-Agent':UA,'Accept':'application/json',...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000),redirect:'manual'});
  if(!res.ok)throw new Error(res.status===429?'来源请求过于频繁，请稍后重试':`来源暂不可用（${res.status}）`);
  const data=await res.json();if(cache.size>=180)cache.delete(cache.keys().next().value!);cache.set(key,{until:Date.now()+300000,data});return data;})();
- inFlight.set(key,task);try{return await task;}catch(e){if(e instanceof Error&&/^(来源|当前|该|作品|图片|尚未)/.test(e.message))throw e;throw new Error('来源连接暂时失败，请稍后重试');}finally{inFlight.delete(key);}
+ try{return await task;}catch(e){if(e instanceof Error&&/^(来源|当前|该|作品|图片|尚未)/.test(e.message))throw e;throw new Error('来源连接暂时失败，请稍后重试');}
 }
 function text(v:any):string{return typeof v==='string'?v:Array.isArray(v)?v.map(x=>x.v||'').join(' / '):'';}
 export function bangumiWork(s:any):Work{return {id:`bangumi:${s.id}`,source:'bangumi',sourceId:String(s.id),title:s.name_cn||s.name,originalTitle:s.name,kind:s.platform==='漫画'?'manga':'novel',cover:s.images?.common||s.images?.large||s.image||'',summary:s.summary||'暂无作品简介',author:text(s.infobox?.find((x:any)=>x.key==='作者')?.value)||'作者资料待补充',tags:(s.tags||[]).slice(0,5).map((x:any)=>x.name),score:s.rating?.score||undefined,votes:s.rating?.total||0,url:`https://bgm.tv/subject/${s.id}`,language:s.name_cn?'中文资料':'日文资料',readable:false,updated:s.date||undefined};}

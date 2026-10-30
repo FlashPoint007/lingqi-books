@@ -20,6 +20,14 @@ test('403 bodies are inspected, failures are not cached and domain redirects sto
  const original=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;return new Response('challenge-platform',{status:403});};
  try{for(let i=0;i<2;i++)await assert.rejects(network.htmlPage(new URL('https://fixture.example/403-body')),e=>e.code==='verification_required'&&!e.retryable);assert.equal(calls,2);globalThis.fetch=async()=>{calls++;return new Response(null,{status:302,headers:{location:'https://other.example/login'}});};await assert.rejects(network.htmlPage(new URL('https://fixture.example/redirect')),e=>e.code==='domain_changed');assert.equal(calls,3);}finally{globalThis.fetch=original;}
 });
+test('an abandoned request cannot leave later readers waiting on its cached promise',async()=>{
+ let abandon;const first=network.cached('abandoned-reader-fixture',()=>new Promise(resolve=>{abandon=resolve;}));
+ let timer;try{
+  const second=await Promise.race([network.cached('abandoned-reader-fixture',async()=>({chapters:['chapter-1']})),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('later reader reused abandoned request')),200);})]);
+  assert.deepEqual(second,{chapters:['chapter-1']});
+  assert.deepEqual(await network.cached('abandoned-reader-fixture',async()=>{throw new Error('completed data should be reused');}),second);
+ }finally{clearTimeout(timer);abandon({chapters:[]});await first;}
+});
 test('anonymous forum titles cannot become fake novel details; inherited source names are rejected',()=>{
  assert.throws(()=>novel.parseNovelDetail('esj','123','<title>ESJ Forum</title><h1>论坛首页</h1><a href="/login">登录</a>'),e=>e.code==='parse_changed');assert.throws(()=>novel.parseNovelDetail('wenku8','123','<title>轻小说文库</title><h1>登录页面</h1>'),e=>e.code==='parse_changed');assert.equal(novel.parseNovelDetail('esj','123','<div class="book-detail"><h2>有效作品</h2></div>').title,'有效作品');assert.equal(novel.isNovelSource('__proto__'),false);assert.equal(novel.isNovelSource('constructor'),false);
 });
@@ -38,6 +46,14 @@ test('parallel chapter images queue instead of rejecting, and failed fetches rel
 });
 
 const discovery=await import(path.join(dir,'reading-discovery.mjs'));
+test('same-title original novels with different or unverified authors are not linked',async()=>{
+ const metadata={id:'bangumi:100',source:'bangumi',sourceId:'100',title:'同名故事',originalTitle:'同名故事',author:'原作作者',kind:'novel',readable:false};
+ const result={...metadata,id:'sfacg:101',source:'sfacg',sourceId:'101',author:'作者资料待补充',readable:true};
+ let checked=0;const reader={id:'sfacg',search:async()=>({items:[result]}),detail:async()=>({...result,author:'同名作品作者'}),chapters:async()=>{checked++;return {items:[{id:'chapter'}],total:1};}};
+ assert.deepEqual((await discovery.findReadingCandidates(metadata,[reader])).items,[]);assert.equal(checked,0);
+ assert.deepEqual((await discovery.findReadingCandidates(metadata,[{...reader,detail:undefined}])).items,[]);
+ const d=await discovery.findReadingCandidates(metadata,[{...reader,detail:async()=>({...result,author:'原作作者'})}]);assert.equal(d.items.length,1);assert.equal(d.items[0].work.author,'原作作者');
+});
 test('reading discovery excludes metadata, blocked novels and unconfigured adapters',async()=>{
  const old=process.env.PUBLIC_READING_SOURCES;process.env.PUBLIC_READING_SOURCES='sfacg,bh3,mangabz';
  try{
@@ -50,7 +66,7 @@ test('reading discovery excludes metadata, blocked novels and unconfigured adapt
  }finally{if(old===undefined)delete process.env.PUBLIC_READING_SOURCES;else process.env.PUBLIC_READING_SOURCES=old;}
 });
 test('metadata candidates require same media, same title and an unlocked inline chapter',async()=>{
- const metadata={id:'bangumi:100',source:'bangumi',sourceId:'100',title:'星空：手记',originalTitle:'星空手記',kind:'novel',readable:false};
+ const metadata={id:'bangumi:100',source:'bangumi',sourceId:'100',title:'星空：手记',originalTitle:'星空手記',author:'样本作者',kind:'novel',readable:false};
  const sample=(id,title,kind='novel',readable=true)=>({...metadata,id:'bridge:'+id,source:'bridge',sourceId:id,title,originalTitle:title,kind,readable});
  const calls=[];
  const readers=[{id:'bridge',search:async()=>({items:[sample('good','星空手记'),sample('manga','星空手记','manga'),sample('appendix','星空手记 番外'),sample('metadata','星空手记','novel',false)]}),chapters:async id=>{calls.push(id);return {total:123,items:[{id:'locked',locked:true},{id:'external',externalUrl:'https://example.org'},{id:'inline',locked:false}]};}}];

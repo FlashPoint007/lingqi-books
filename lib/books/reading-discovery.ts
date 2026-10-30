@@ -12,7 +12,8 @@ export function readingSources(kind:'novel'|'manga'):string[]{
 }
 
 export type ReadingCandidate={work:Work;chapterCount:number;firstChapter:Chapter};
-type Reader={id:string;search:(query:string)=>Promise<{items:Work[]}>;chapters:(id:string)=>Promise<{items:Chapter[];total:number}>};
+type Reader={id:string;search:(query:string)=>Promise<{items:Work[]}>;detail?:(id:string)=>Promise<Work>;chapters:(id:string)=>Promise<{items:Chapter[];total:number}>};
+function authorKey(author:string){return !author||/待补充|未知|未标注|unknown/i.test(author)?'':normalizeTitle(author);}
 /** Same-title matches are choices, never silent associations or body guarantees.
  * A catalog must contain an unlocked in-app chapter before a choice is offered. */
 export async function findReadingCandidates(metadata:Work,readers:Reader[]){
@@ -27,7 +28,12 @@ export async function findReadingCandidates(metadata:Work,readers:Reader[]){
     if(found.size)break;
    }
    const items:ReadingCandidate[]=[];
-   for(const w of [...found.values()].slice(0,3)){
+   for(const result of [...found.values()].slice(0,3)){
+    const w=reader.detail?await reader.detail(result.sourceId):result;
+    // Original novels can share titles with unrelated works or fan fiction.
+    // Missing author data must not make such a work look like the original.
+    if(w.kind!==metadata.kind||!w.readable||![w.title,w.originalTitle].some(t=>names.has(normalizeTitle(t))))continue;
+    if(metadata.kind==='novel'&&(!authorKey(metadata.author)||authorKey(metadata.author)!==authorKey(w.author)))continue;
     const d=await reader.chapters(w.sourceId),first=d.items.find(c=>!c.locked&&!c.externalUrl);
     if(first)items.push({work:w,chapterCount:d.total,firstChapter:first});
    }

@@ -1,7 +1,7 @@
 import {load} from 'cheerio/slim';
 import {SourceError} from './source-errors';
 const UA='LingqiBooks/0.3 (+https://github.com/FlashPoint007/lingqi-books)';
-const memo=new Map<string,{data:unknown;until:number}>();const pending=new Map<string,Promise<unknown>>();const active=new Map<string,number>();
+const memo=new Map<string,{data:unknown;until:number}>();const active=new Map<string,number>();
 const queues=new Map<string,Array<()=>void>>();
 async function acquire(origin:string){
  if((active.get(origin)||0)<3)active.set(origin,(active.get(origin)||0)+1);
@@ -9,7 +9,9 @@ async function acquire(origin:string){
  let released=false;return ()=>{if(released)return;released=true;const queue=queues.get(origin);const next=queue?.shift();if(!queue?.length)queues.delete(origin);if(next)next();else {const remaining=(active.get(origin)||1)-1;if(remaining)active.set(origin,remaining);else active.delete(origin);}};
 }
 export async function limitedBytes(response:Response,max:number){const reader=response.body?.getReader();if(!reader)throw new Error('来源返回了空响应');let count=0;const chunks:Uint8Array[]=[];try{while(true){const {value,done}=await reader.read();if(done)break;count+=value.length;if(count>max){await reader.cancel();throw new Error('来源响应超过大小限制');}chunks.push(value);}}finally{reader.releaseLock();}const bytes=new Uint8Array(count);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;}
-export async function cached<T>(key:string,job:()=>Promise<T>,ttl=180000):Promise<T>{const h=memo.get(key);if(h&&h.until>Date.now())return h.data as T;if(pending.has(key))return pending.get(key) as Promise<T>;const task=job().then(data=>{if(memo.size>=80)memo.delete(memo.keys().next().value!);memo.set(key,{data,until:Date.now()+ttl});return data;}).finally(()=>pending.delete(key));pending.set(key,task);return task;}
+// Only completed data can cross Worker requests. An in-flight promise belongs to
+// its request and can be abandoned when that request is canceled by the client.
+export async function cached<T>(key:string,job:()=>Promise<T>,ttl=180000):Promise<T>{const h=memo.get(key);if(h&&h.until>Date.now())return h.data as T;const data=await job();if(memo.size>=80)memo.delete(memo.keys().next().value!);memo.set(key,{data,until:Date.now()+ttl});return data;}
 export function publicUrl(raw:string,base?:string){const u=new URL(raw,base);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.port&&!['80','443'].includes(u.port))throw new Error('来源地址无效');return u;}
 export async function request(url:URL,headers:Record<string,string>={}){const release=await acquire(url.origin);try{return await fetch(url,{headers:{'User-Agent':UA,Accept:'text/html,application/json',...headers},redirect:'manual',signal:AbortSignal.timeout(15000)});}catch{throw new SourceError('connection_failed','来源连接失败或超时','当前服务器无法连接来源，可以稍后重试。',true);}finally{release();}}
 export function assertHtmlPage(html:string,url:URL,status:number){
