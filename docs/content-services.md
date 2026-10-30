@@ -130,3 +130,7 @@ LNReader 模块的 `filters` 默认值现在传给排行榜方法，避免插件
 本轮新增回归覆盖：403 正文识别、普通登录导航、假作品拒绝、按来源服务路由、无封面作品验证、插件 filters、带请求头的站内插图、LDS 契约与跨作品阻断。测试样本与 mock 不等同于真实中文轻小说章节验收。
 
 漫画图片并发修复：图片预留 850 × 1200 的比例以稳定懒加载；每来源最多 3 个在途请求，其余在有界队列中等待，不再把正常翻页的并行图片直接拒绝。队列最多 24 个，排队超过 12 秒明确失败。
+
+### Additional direct reading sources
+
+`manhuagui` provides Chinese manga discovery, catalogs and chapter images. `lnovel` provides Traditional Chinese light-novel discovery, volume/chapter catalogs and text/image blocks. Enable each only after production verification by including its exact ID in `PUBLIC_READING_SOURCES`. They run within the existing Sites HTTP backend and do not require a Suwayomi or Maki instance. Image requests accept work/chapter/index references, never arbitrary destination URLs. Upstream login, restricted regions and paid chapters remain subject to the source's permissions.

@@ -1,4 +1,4 @@
-export type Source = 'bangumi' | 'mangadex' | 'narou' | 'local' | 'bridge' | 'wenku8' | 'bilinovel' | 'esj' | 'masiro' | 'suwayomi' | 'maki' | 'sfacg' | 'bh3' | 'mangabz';
+export type Source = 'bangumi' | 'mangadex' | 'narou' | 'local' | 'bridge' | 'wenku8' | 'bilinovel' | 'esj' | 'masiro' | 'suwayomi' | 'maki' | 'sfacg' | 'bh3' | 'mangabz' | 'manhuagui' | 'lnovel';
 export type Work = { id:string; source:Source; sourceId:string; title:string; originalTitle:string; kind:'novel'|'manga'; cover:string; summary:string; author:string; tags:string[]; score?:number; votes?:number; url:string; language:string; readable:boolean; provider?:string; updated?:string };
 export type Chapter = { id:string; title:string; number:string; language:string; groups:{name:string;url:string}[]; externalUrl?:string; pages:number; locked?:boolean };
 export type SourceStatus = {source:string;ok:boolean;message:string;code?:string;hint?:string;retryable?:boolean;httpStatus?:number};

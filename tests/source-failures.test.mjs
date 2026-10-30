@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','source-errors','network','sfacg','mangabz','public-reading','web-novels','reader-services','bridge','availability','sources']){
+for(const name of ['model','source-errors','network','sfacg','mangabz','manhuagui','lnovel','public-reading','web-novels','reader-services','bridge','availability','sources']){
  let source=await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8');source=source.replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
 const route=(await readFile(new URL('../app/api/catalog/route.ts',import.meta.url),'utf8')).replace(/from '\.\.\/\.\.\/\.\.\/lib\/books\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,'catalog.mjs'),ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);

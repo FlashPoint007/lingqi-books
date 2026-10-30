@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','source-errors','network','sfacg','mangabz','public-reading']){
+for(const name of ['model','source-errors','network','sfacg','mangabz','manhuagui','lnovel','public-reading']){
  const source=(await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8')).replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
@@ -70,3 +70,5 @@ test('MangaBz refuses crossed works, VIP chapters and executable image responses
  assert.throws(()=>bz.parseBzPage(packed('https://evil.test/1/9001/9002'),'9001','9002'),/不匹配/);
  assert.throws(()=>bz.parseBzPage(packed('https://image.mangabz.com/1/9003/9002'),'9001','9002'),/不匹配/);
 });
+
+test('production-blocked novel reader reports the verification reason and is not enabled',async()=>{delete process.env.PUBLIC_READING_SOURCES;assert.equal(pub.publicSourceEnabled('lnovel'),false);await assert.rejects(pub.publicSearch('lnovel','',1),e=>e.code==='verification_required'&&e.retryable===false);});

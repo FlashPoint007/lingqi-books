@@ -37,3 +37,19 @@
 - MangaBz adapter reads public chapter data without evaluating source JavaScript, binds chapter IDs to the work catalog, rejects VIP chapters, and restricts picture origins and work/chapter paths.
 - Novelia n.novelia.cc homepage returned 200, but both anonymous list API variants returned 401 and `游客没有权限执行此操作`. It remains disabled; homepage access is insufficient.
 - Sites runs Workers, not a Docker host. The existing Maki (.NET) and Suwayomi (Java) services cannot run unchanged inside it; existing HTTP adapters still require an external instance.
+
+## 2026-10-30 additional reading sources
+
+- Added `manhuagui` and `lnovel` as optional direct Workers readers, with explicit production enablement. Source markup becomes data blocks or scoped local image endpoints; no source script is executed.
+- Manga source development probe: work 37861 (`第二次被异世界召唤`) returns 51 chapters, chapter 522954 returns 40 image paths. Pages 1, 20 and 40 returned actual WebP images (98416, 135126 and 74034 bytes). The dictionary is decoded as data, with work/chapter identity, complete page count and image path checks. Restricted catalogs and chapters are rejected.
+- Novel development probe: work 3853 (`朱華姬的親衛`, 白川紺子) returns 11 chapters. Chapters 146090 and 146091 return Chinese text. Chapter 146090 parsed into 699 blocks with original translator credits preserved. These samples contain no inline illustrations; synthetic illustration tests do not constitute real-source illustration verification.
+- 42 automated tests passed, including cross-work and image-path rejection, restricted reading state, non-executable manifest decoding, ordered text/image blocks, and bounded image index checks.
+- Linovel.net timed out; Lightnovel.us returned 503. The 37yq.com homepage is a domain-for-sale landing page rather than a readable catalog. These candidates were not enabled.
+- Production validation is performed after publication and reported separately; development success does not establish production availability.
+
+### Production outcome
+
+- Sites v13 deployed with both adapters for validation. Manga source work 37861 and its catalog loaded successfully after one transient connection failure. Cloud browser decoded chapter 522954 pages 1 and 2 at 844px natural width; page turning worked. Chapter 541147 returned 34 pages and its first picture decoded at 844px. Scroll validation decoded page 20 from chapter 522954 through the local image endpoint.
+- The novel source returns a confirmed verification page from Sites production. Its production enablement was removed; it is explicitly marked blocked, retained for future approved connectivity, and excluded from combined search. No production novel readability is claimed.
+- Final automated suite: 43 tests passed; TypeScript checking passed. Reader behavior and limitations are reported as samples, not a full-source availability guarantee.
+- Cloud browser additionally decoded chapter 522954 page 40 through the production image endpoint. Pages outside sampled reading positions remain lazy and were not all checked.
