@@ -1,5 +1,6 @@
-export type Observation={ok:boolean;message:string;checkedAt:string};
+import type {SourceFailure} from './source-errors';
+export type Observation={ok:boolean;message:string;checkedAt:string}&Partial<SourceFailure>;
 const observations=new Map<string,Observation>();
-export function observe(source:string,ok:boolean,message:string){observations.set(source,{ok,message,checkedAt:new Date().toISOString()});}
+export function observe(source:string,ok:boolean,message:string,details:Partial<SourceFailure>={}){observations.set(source,{ok,...details,message,checkedAt:new Date().toISOString()});}
 export function observed(source:string){return observations.get(source);}
-export function publicError(e:unknown){return e instanceof Error&&e.name!=='ZodError'?e.message:'来源返回的数据无效';}
+export {sourceFailure} from './source-errors';

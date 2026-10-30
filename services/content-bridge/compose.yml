@@ -6,6 +6,7 @@ services:
       - "127.0.0.1:8787:8787"
     environment:
       BRIDGE_TOKEN: ${BRIDGE_TOKEN:?Set a random token of at least 32 characters}
+      LDS_AUTHORIZATION: ${LDS_AUTHORIZATION:-}
     volumes:
       - ./config.json:/app/config.json:ro
       - ./plugins:/app/plugins:ro

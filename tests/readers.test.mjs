@@ -6,7 +6,7 @@ import ts from 'typescript';
 import {richText} from '../services/content-bridge/richtext.mjs';
 // Compile server-only TS fixtures to an ignored temporary directory, preserving real dependencies.
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-const modules=['model','network','web-novels','reader-services'];
+const modules=['model','source-errors','network','web-novels','reader-services'];
 const {readFile}=await import('node:fs/promises');
 for(const name of modules){let source=await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8');source=source.replace("../../services/content-bridge/richtext.mjs",'../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);}
 const novel=await import(path.join(dir,'web-novels.mjs')),service=await import(path.join(dir,'reader-services.mjs'));const network=await import(path.join(dir,'network.mjs'));

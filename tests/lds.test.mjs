@@ -1,0 +1,8 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {createLdsPlugin} from '../services/content-bridge/lds.mjs';
+test('LDS adapter validates its service contract and chapter identity, and requires a query',async()=>{
+ const plugin=createLdsPlugin({endpoint:'https://lds.example/api-root',site:'https://www.bilinovel.com',authorizationEnv:'TEST_LDS_AUTH'});const original=globalThis.fetch;const requests=[];process.env.TEST_LDS_AUTH='Bearer fixture-only';
+ globalThis.fetch=async(url,options)=>{const u=new URL(url);requests.push(u);assert.equal(u.origin,'https://lds.example');assert.equal(options.redirect,'manual');assert.equal(options.headers.Authorization,'Bearer fixture-only');if(u.pathname.endsWith('/api/novel'))return Response.json({name:'契约测试',path:'/novel/123.html',chapters:[{path:'/novel/123/42.html',name:'第一章'}]});if(u.pathname.endsWith('/api/search'))return Response.json({results:[{name:'契约测试',path:'/novel/123.html'}]});if(u.pathname.endsWith('/api/chapter'))return Response.json({content:'<p>正文</p><img src="/art.jpg">'});throw Error('Unexpected endpoint');};
+ try{await assert.rejects(plugin.popularNovels(1),e=>e.code==='query_required');assert.equal((await plugin.searchNovels('123',1))[0].name,'契约测试');assert.equal(requests[0].searchParams.get('path'),'/novel/123.html');assert.equal((await plugin.searchNovels('书名',1)).length,1);assert.match(await plugin.parseChapter('/novel/123/42.html'),/img/);await assert.rejects(plugin.parseChapter('https://evil.test/path'),/Invalid chapter/);globalThis.fetch=async()=>Response.json({name:'错误书籍',chapters:[{path:'/novel/999/42.html'}]});await assert.rejects(plugin.parseNovel('/novel/123.html'),/mismatch/);}finally{globalThis.fetch=original;delete process.env.TEST_LDS_AUTH;}
+});

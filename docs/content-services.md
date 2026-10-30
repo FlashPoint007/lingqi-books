@@ -7,7 +7,7 @@
 来源状态含义：
 
 - 已接入：既有 Bangumi 资料 / MangaDex 读取能力。
-- 已添加：网页适配代码已实现，不代表当前源站允许访问或每部作品完整。
+- 需验证：网页适配代码已实现，不代表当前源站允许访问或每部作品完整。
 - 待配置：实例地址或允许列表尚未配置。
 - 最近检测：当前运行实例最近一次列表请求结果，不代表整站、整本或全部图片成功。点击“检测”会真实读取列表。
 
@@ -50,7 +50,7 @@
 
 ## 可选 LNReader / 授权内容服务
 
-`services/content-bridge` 支持 `catalog` 自有图文内容库、适配后的 `lnreader` ESM 模块，以及既有 `suwayomi` 桥接配置。
+`services/content-bridge` 支持 `catalog` 自有内容库、适配后的 `lnreader` ESM 模块、已有 `lds` 解析服务与 `suwayomi` 桥接配置。
 
 部署步骤：复制 `config.example.json` 为 `config.json`，填入核准源、署名与依据，设置至少 32 位随机 `BRIDGE_TOKEN`，执行 `docker compose up -d --build`，通过已有 HTTPS 反向代理转发到 `127.0.0.1:8787`。随后在 Sites 秘密环境变量中设置 `CONTENT_BRIDGE_URL` 与 `CONTENT_BRIDGE_TOKEN`，重新发布生效。
 
@@ -72,6 +72,41 @@
 
 授权字段由运营者核实；代码只校验格式，不能自动证明授权真实性。实际内容 JSON 默认不提交 Git。
 
+## 访问失败诊断与连接方式
+
+列表、详情接口返回稳定的 `code`、`hint`、`retryable`。即使 HTTP 403 / 503，仍在大小限制内检查响应正文，再区分安全验证与普通权限错误。普通页面里的登录导航不再被当成登录墙；论坛首页或任意网页标题不再生成假作品。只有超时、限流、临时上游错误显示重试按钮。
+
+生产日志仅记录 `source_failure` 的来源标识、操作、错误类型与 HTTP 状态，不记录搜索词、Cookie、密钥或原始页面。它是单次请求证据，不是所有作品可读性的保证。
+
+在 Sites 配置 `CONTENT_BRIDGE_URL` 与 `CONTENT_BRIDGE_TOKEN` 后，可以按来源指定桥接中的 source ID：
+
+| Sites 环境变量 | 示例值 |
+|---|---|
+| `NOVEL_BRIDGE_SOURCE_WENKU8` | `wenku8-account` |
+| `NOVEL_BRIDGE_SOURCE_BILINOVEL` | `bilinovel-lds` |
+| `NOVEL_BRIDGE_SOURCE_ESJ` | `esj-account` |
+| `NOVEL_BRIDGE_SOURCE_MASIRO` | `masiro-account` |
+
+配置后，选择该来源搜索时仅调用对应桥接插件。返回作品通过桥接读取目录、正文和插图；失败时不自动回退到已拒绝访问的匿名网页。旧的网页源书架记录需重新搜索并收藏服务返回的作品，以获得正确的服务作品 ID。
+
+已登录会话在运营者维护的服务中管理，不在公开网页中填写或暴露。网站目前未提供这些账户会话或长期运行实例；不能只填写来源名称就把它当作已连接。
+
+### 已有 LDS 服务
+
+桥接 `config.json` 的来源配置示例（域名均需替换为运营者实际服务）：
+
+```json
+{"sources":[{"id":"bilinovel-lds","name":"哔哩轻小说阅读服务","type":"lds","kind":"novel","language":"zh","site":"https://www.bilinovel.com/","endpoint":"http://lds:5301","authorizationEnv":"LDS_AUTHORIZATION","rightsUrl":"https://content.example/rights","attribution":"按实际作品填写作者与译者","imageHosts":["img.example"]}]}
+```
+
+适配 `/api/search?keyword=`、`/api/novel?path=`、`/api/chapter?path=` 的 JSON 契约。名称搜索或数字 ID 查找后，目录与章节仍在本站阅读。该协议没有排行榜接口，因此空搜索会提示输入书名 / ID，不返回空列表冒充检测成功。LDS 本身需要独立部署和维护；本项目只连接已有服务，不提供验证码处理、会话获取或来源内容权限。
+
+### 插图与插件参数
+
+LNReader 模块的 `filters` 默认值现在传给排行榜方法，避免插件访问 `filters.rank.value` 时崩溃。来源失败互相隔离，通用桥接搜索保留其他成功来源。
+
+小说插图改走 `/api/content-image` → 鉴权桥接 → 来源图片，保留插件的图片请求头；桥接令牌不发送到图片源。图片域名仅允许来源本身及配置中 `imageHosts` 的精确主机名，不接收浏览器任意 URL，不跟随图片重定向。缺少图床配置时显式报错，不静默删除插图。已验证章节短缓存 60 秒，避免每张插图重复抓取目录与正文。
+
 ## 验证记录
 
 自动测试覆盖有序图文清洗、脚本 / 非法图片丢弃、卷章与相对链接、隐藏目录显式拒绝、付费标记、跨作品请求阻断、Maki / Suwayomi 允许列表、图片响应限制、挑战页不缓存等。服务接口测试使用隔离原创样本和 mock 响应，不等于实源成功。
@@ -79,3 +114,5 @@
 云浏览器预览用一次性原创样本验证了段落 → 插图 → 段落顺序，图片实际加载、点开放大、切章、字号调整，以及刷新后恢复第二章。样本与临时接口在生产打包前删除。
 
 生产实源可用性以最终交付说明为准。不能把已有解析器当成每部小说、每章图片或译文质量的保证。
+
+本轮新增回归覆盖：403 正文识别、普通登录导航、假作品拒绝、按来源服务路由、无封面作品验证、插件 filters、带请求头的站内插图、LDS 契约与跨作品阻断。测试样本与 mock 不等同于真实中文轻小说章节验收。
