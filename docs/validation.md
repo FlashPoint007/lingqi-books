@@ -53,3 +53,11 @@
 - The novel source returns a confirmed verification page from Sites production. Its production enablement was removed; it is explicitly marked blocked, retained for future approved connectivity, and excluded from combined search. No production novel readability is claimed.
 - Final automated suite: 43 tests passed; TypeScript checking passed. Reader behavior and limitations are reported as samples, not a full-source availability guarantee.
 - Cloud browser additionally decoded chapter 522954 page 40 through the production image endpoint. Pages outside sampled reading positions remain lazy and were not all checked.
+
+## Reading entry repair (2026-10-30)
+
+- Fixed the metadata-to-reading dead end: default discovery now lists enabled reading providers; Bangumi metadata is an explicit separate mode, labeled as having no body text. Unconfigured/blocked adapters are excluded from default and combined reading searches.
+- Added primary Start/Continue Reading actions to real reader works. Catalogs must contain an unlocked inline chapter before the button is enabled. Source attribution links remain secondary information links.
+- Bangumi detail pages query only configured reading providers for same-title works of the same media kind, require an unlocked inline chapter, and present choices for the user to verify. No same-title choice is auto-associated; unmatched works are explicitly unavailable. The hard-coded Wenku8 redirect was removed.
+- External-only manga chapters are disabled for inline reading. Offline adapters cannot be opened as normal reading providers from the source status page.
+- 47 automated tests passed, covering enabled-provider filtering, no fallback into disabled Wenku8, title/media identity, locked/external chapter rejection, and empty enabled-provider discovery. TypeScript check and local production build passed. Local installer output stalled during dependency downloads; checks ran successfully using the materialized dependencies directly after stopping the installer.

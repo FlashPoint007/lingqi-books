@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','source-errors','network','sfacg','mangabz','manhuagui','lnovel','public-reading','web-novels','reader-services','bridge','availability','sources']){
+for(const name of ['model','source-errors','network','sfacg','mangabz','manhuagui','lnovel','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery']){
  let source=await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8');source=source.replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
 const route=(await readFile(new URL('../app/api/catalog/route.ts',import.meta.url),'utf8')).replace(/from '\.\.\/\.\.\/\.\.\/lib\/books\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,'catalog.mjs'),ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
@@ -35,4 +35,34 @@ test('existing metadata network errors remain retryable while permission errors 
 test('parallel chapter images queue instead of rejecting, and failed fetches release their slots',async()=>{
  const original=globalThis.fetch;let active=0,peak=0,calls=0;globalThis.fetch=async url=>{calls++;active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,5));active--;if(new URL(url).pathname==='/failure')throw new Error('fixture transport failure');return new Response('image');};
  try{const results=await Promise.allSettled(Array.from({length:15},(_,i)=>network.request(new URL('https://images.fixture/'+(i===1?'failure':i)))));assert.equal(results.filter(x=>x.status==='fulfilled').length,14);assert.equal(results.filter(x=>x.status==='rejected').length,1);assert.equal(peak,3);assert.equal(calls,15);assert.equal((await network.request(new URL('https://images.fixture/after-failure'))).status,200);}finally{globalThis.fetch=original;}
+});
+
+const discovery=await import(path.join(dir,'reading-discovery.mjs'));
+test('reading discovery excludes metadata, blocked novels and unconfigured adapters',async()=>{
+ const old=process.env.PUBLIC_READING_SOURCES;process.env.PUBLIC_READING_SOURCES='sfacg,bh3,mangabz';
+ try{
+  assert.deepEqual(discovery.readingSources('novel'),['sfacg']);
+  const manga=discovery.readingSources('manga');assert.ok(manga.includes('mangadex'));assert.ok(manga.includes('mangabz'));assert.ok(!manga.includes('bangumi'));assert.ok(!manga.includes('suwayomi'));
+  const status=await(await catalog.GET(new Request('https://site.example/api/catalog?action=status'))).json();
+  assert.equal(status.sources.find(s=>s.id==='bangumi').readingEnabled,false);
+  assert.equal(status.sources.find(s=>s.id==='wenku8').readingEnabled,false);
+  assert.equal(status.sources.find(s=>s.id==='sfacg').readingEnabled,true);
+ }finally{if(old===undefined)delete process.env.PUBLIC_READING_SOURCES;else process.env.PUBLIC_READING_SOURCES=old;}
+});
+test('metadata candidates require same media, same title and an unlocked inline chapter',async()=>{
+ const metadata={id:'bangumi:100',source:'bangumi',sourceId:'100',title:'星空：手记',originalTitle:'星空手記',kind:'novel',readable:false};
+ const sample=(id,title,kind='novel',readable=true)=>({...metadata,id:'bridge:'+id,source:'bridge',sourceId:id,title,originalTitle:title,kind,readable});
+ const calls=[];
+ const readers=[{id:'bridge',search:async()=>({items:[sample('good','星空手记'),sample('manga','星空手记','manga'),sample('appendix','星空手记 番外'),sample('metadata','星空手记','novel',false)]}),chapters:async id=>{calls.push(id);return {total:123,items:[{id:'locked',locked:true},{id:'external',externalUrl:'https://example.org'},{id:'inline',locked:false}]};}}];
+ const d=await discovery.findReadingCandidates(metadata,readers);assert.equal(d.items.length,1);assert.equal(d.items[0].work.sourceId,'good');assert.equal(d.items[0].firstChapter.id,'inline');assert.equal(d.items[0].chapterCount,123);assert.deepEqual(calls,['good']);
+ const unavailable=await discovery.findReadingCandidates(metadata,[{...readers[0],chapters:async()=>({total:1,items:[{id:'locked',locked:true}]})}]);assert.equal(unavailable.items.length,0);
+});
+test('Bangumi reading entry never routes a missing novel into an unconfigured web source',async()=>{
+ const original=globalThis.fetch,old=process.env.PUBLIC_READING_SOURCES,calls=[];process.env.PUBLIC_READING_SOURCES='sfacg';
+ globalThis.fetch=async url=>{const u=new URL(url);calls.push(u.href);if(u.hostname==='api.bgm.tv')return Response.json({id:190001,type:1,name:'Fictional missing title',name_cn:'未接通样本小说',platform:'轻小说'});if(u.hostname==='s.sfacg.com')return new Response('<a href="https://book.sfacg.com/Novel/990001/">其他原创作品</a>');throw new Error('Unexpected '+u.href);};
+ try{const d=await(await catalog.GET(new Request('https://site.example/api/catalog?action=reading-candidates&source=bangumi&id=190001'))).json();assert.deepEqual(d.items,[]);assert.deepEqual(d.checkedSources,['sfacg']);assert.ok(calls.every(u=>!u.includes('wenku8')&&!u.includes('linovelib')));}finally{globalThis.fetch=original;if(old===undefined)delete process.env.PUBLIC_READING_SOURCES;else process.env.PUBLIC_READING_SOURCES=old;}
+});
+test('default readable catalog has no metadata or legacy-source fallback when no readers are enabled',async()=>{
+ const old=process.env.PUBLIC_READING_SOURCES,original=globalThis.fetch;process.env.PUBLIC_READING_SOURCES='';let count=0;globalThis.fetch=async()=>{count++;throw new Error('unexpected fetch');};
+ try{const d=await(await catalog.GET(new Request('https://site.example/api/catalog?kind=novel'))).json();assert.deepEqual(d.items,[]);assert.equal(count,0);}finally{globalThis.fetch=original;if(old===undefined)delete process.env.PUBLIC_READING_SOURCES;else process.env.PUBLIC_READING_SOURCES=old;}
 });
