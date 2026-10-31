@@ -70,3 +70,9 @@
 
 - Live metadata verification also found an SF work titled “败犬女主太多了!” by 星下夏心 (602319), distinct from 雨森たきび’s novel. Novel candidates now fetch source detail and require matching verified author information as well as title and media kind; different or missing authors are excluded. The site does not claim the Japanese original is connected.
 - Both HTML-reader and JSON-metadata caches now store completed data only; regression tests cover stalled earlier requests without blocking a later reader.
+
+## Discovery transitions and manga browser verification (2026-10-31)
+
+- Discovery responses are bound to their category, source, query, page and filters. A changed selection immediately renders the loading state; an old result or error cannot be displayed under a new source. Aborted catalog, chapter and manga-content responses are ignored. Opening another detail cancels pending reading navigation.
+- Live browser verification: MangaBz work 234 (極主夫道) opened through Start reading into the in-site reader. Chapter 1 returned 16 image pages; pages 1 and 2 decoded at 640×500 and 640×910. Page mode and next-page navigation worked. Japanese novel metadata remains distinct from available body sources.
+- Validation: 49 tests passed, TypeScript check and production build succeeded.
