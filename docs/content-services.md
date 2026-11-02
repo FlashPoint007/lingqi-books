@@ -134,3 +134,19 @@ LNReader 模块的 `filters` 默认值现在传给排行榜方法，避免插件
 ### Additional direct reading sources
 
 `manhuagui` provides Chinese manga discovery, catalogs and chapter images. `lnovel` provides Traditional Chinese light-novel discovery, volume/chapter catalogs and text/image blocks. Enable each only after production verification by including its exact ID in `PUBLIC_READING_SOURCES`. They run within the existing Sites HTTP backend and do not require a Suwayomi or Maki instance. Image requests accept work/chapter/index references, never arbitrary destination URLs. Upstream login, restricted regions and paid chapters remain subject to the source's permissions.
+
+## Kakuyomu、轻之文库与动漫屋
+
+本轮新增三个直接运行在 Sites HTTP 后端的来源，无需 Maki / Suwayomi 常驻实例：
+
+| ID | 内容 | 边界 |
+| --- | --- | --- |
+| `linovel` | 轻之文库中文原创；排行、搜索、公开目录及图文正文 | 拒绝付费提示，封面和插图只走核准图床；与 `lnovel` 轻小说百科是不同来源 |
+| `kakuyomu` | Kakuyomu 日本作者公开连载 | 标明日文原文；使用字符串保留长作品 ID；按公开目录次序读取，不接入 NEXT 订阅作品 |
+| `dm5` | 动漫屋中文漫画 | 拒绝来源阅读限制和付费页；不设置年龄或登录 Cookie；图片响应只作数据解析，不执行上游脚本 |
+
+各来源通过 `/api/catalog?action=verify-reading&source=<ID>` 进行固定样本的目录、真实内容与封面检测，检测接口不会自行启用来源。检查成功后才能将 ID 加入生产 `PUBLIC_READING_SOURCES` 并重新部署。检测返回计数，不返回图片签名或请求凭据。样本成功不代表每一部作品或每个图床节点都可用；未知节点会明确失败，不能作为任意 URL 代理。
+
+实现参考公开插件的协议和页面选择器，未安装或运行第三方插件脚本：[LNReader 插件](https://github.com/LNReader/lnreader-plugins)（Kakuyomu、Linovel）与 [Keiyoushi DM5 适配](https://github.com/keiyoushi/extensions-source/tree/main/src/zh/dm5)。本站适配器保留独立的作品归属、受限内容、图床和响应大小校验。
+
+阅读器提供可搜索和分页的目录、四种背景、字号/行距/宽度/字体设置、固定翻章栏、键盘操作及章内位置保存。段落锚点结合相对位置用于恢复正文；插图加载引起高度变化时继续校准，直到读者主动滚动。漫画复用完整目录，支持条漫和逐页模式。阅读进度仍保存在当前浏览器，不提供跨设备账户同步。
