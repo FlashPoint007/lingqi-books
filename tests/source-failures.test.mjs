@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','source-errors','network','sfacg','mangabz','manhuagui','lnovel','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery']){
+for(const name of ['model','chinese','n8novel','komiic','source-errors','network','sfacg','mangabz','manhuagui','lnovel','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery','reading-probe']){
  let source=await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8');source=source.replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
 const route=(await readFile(new URL('../app/api/catalog/route.ts',import.meta.url),'utf8')).replace(/from '\.\.\/\.\.\/\.\.\/lib\/books\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,'catalog.mjs'),ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
@@ -81,4 +81,18 @@ test('Bangumi reading entry never routes a missing novel into an unconfigured we
 test('default readable catalog has no metadata or legacy-source fallback when no readers are enabled',async()=>{
  const old=process.env.PUBLIC_READING_SOURCES,original=globalThis.fetch;process.env.PUBLIC_READING_SOURCES='';let count=0;globalThis.fetch=async()=>{count++;throw new Error('unexpected fetch');};
  try{const d=await(await catalog.GET(new Request('https://site.example/api/catalog?kind=novel'))).json();assert.deepEqual(d.items,[]);assert.equal(count,0);}finally{globalThis.fetch=original;if(old===undefined)delete process.env.PUBLIC_READING_SOURCES;else process.env.PUBLIC_READING_SOURCES=old;}
+});
+
+test('production novel probe reports missing source images separately from verified text',async()=>{
+ const original=globalThis.fetch;
+ const book='<li class="h2">样本小说</li><span class="item-info-author">作者: 样本作者</span><div class="item-cover"><img src="/pics/0/sample.jpg"></div><a class="episode_li" href="/read/9236/?116290">序章</a><a class="episode_li" href="/read/9236/?116291">第一章</a><a class="episode_li" href="/read/9236/?116303">插图</a>';
+ const reader="<script>var a='116290,116291,116303,"+'1234567890'.repeat(12)+"'.split(',');var path='%2f1%2f9236%2f';</script>";
+ globalThis.fetch=async url=>{const u=new URL(url);if(u.pathname==='/search/')return new Response('<a title="样本小说" href="/novelbooks/9236/">作品</a>');if(u.pathname==='/novelbooks/9236/')return new Response(book);if(u.pathname==='/read/9236/')return new Response(reader);if(u.pathname.startsWith('/txt/'))return new Response(u.pathname.includes('116303')?'<img src="/pics/content/9236/sample.jpg">':'<p>'+('原创测试段落。'.repeat(30))+'</p>');if(u.pathname.startsWith('/pics/'))return new Response('Source image missing',{status:404});throw new Error('Unexpected '+u.href);};
+ try{const r=await catalog.GET(new Request('https://site.example/api/catalog?action=verify-reading&source=n8novel'));const d=await r.json();assert.equal(r.status,200);assert.equal(d.statuses[0].ok,true);assert.ok(d.validation.textCharacters>200);assert.equal(d.validation.coverBytes,0);assert.equal(d.validation.illustrationBytes,0);assert.equal(d.validation.warnings.length,2);assert.match(d.statuses[0].message,/图片缺失/);}finally{globalThis.fetch=original;}
+});
+
+test('metadata matching accepts a verified traditional alternative title and author',async()=>{
+ const metadata={id:'bangumi:990001',source:'bangumi',sourceId:'990001',title:'星空手记',originalTitle:'星の手記',author:'样本作者',kind:'novel',readable:false};
+ const candidate={...metadata,id:'n8novel:990002',source:'n8novel',sourceId:'990002',title:'星空紀錄(星空手記)',originalTitle:'星空紀錄(星空手記)',author:'樣本作者',readable:true};
+ const d=await discovery.findReadingCandidates(metadata,[{id:'n8novel',search:async()=>({items:[candidate]}),detail:async()=>candidate,chapters:async()=>({total:2,items:[{id:'990002~990003',locked:false}]})}]);assert.equal(d.items.length,1);assert.equal(d.items[0].work.sourceId,'990002');
 });

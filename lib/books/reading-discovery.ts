@@ -1,7 +1,8 @@
 import {PUBLIC_SOURCES,publicSourceEnabled} from './public-reading';
 import {bridgeConfigured,novelBridgeSource} from './bridge';
 import {serviceConfigured} from './reader-services';
-import {normalizeTitle,type Work,type Chapter} from './model';
+import {type Work,type Chapter} from './model';
+import {chineseKey,titleKeys} from './chinese';
 
 /** Discovery includes configured readers only; metadata and blocked adapters are
  * deliberately absent. Explicit source diagnostics remain available separately. */
@@ -13,18 +14,18 @@ export function readingSources(kind:'novel'|'manga'):string[]{
 
 export type ReadingCandidate={work:Work;chapterCount:number;firstChapter:Chapter};
 type Reader={id:string;search:(query:string)=>Promise<{items:Work[]}>;detail?:(id:string)=>Promise<Work>;chapters:(id:string)=>Promise<{items:Chapter[];total:number}>};
-function authorKey(author:string){return !author||/待补充|未知|未标注|unknown/i.test(author)?'':normalizeTitle(author);}
+function authorKey(author:string){return !author||/待补充|未知|未标注|unknown/i.test(author)?'':chineseKey(author);}
 /** Same-title matches are choices, never silent associations or body guarantees.
  * A catalog must contain an unlocked in-app chapter before a choice is offered. */
 export async function findReadingCandidates(metadata:Work,readers:Reader[]){
  const aliases=[...new Set([metadata.title,metadata.originalTitle].map(s=>s.trim()).filter(s=>s.length>0&&s.length<=100))];
- const names=new Set(aliases.map(normalizeTitle));
+ const names=new Set(aliases.flatMap(titleKeys));
  const results=await Promise.all(readers.map(async reader=>{
   try{
    const found=new Map<string,Work>();
    for(const query of aliases.slice(0,2)){
     const data=await reader.search(query);
-    for(const w of data.items)if(w.kind===metadata.kind&&w.readable&&[w.title,w.originalTitle].some(t=>names.has(normalizeTitle(t))))found.set(w.id,w);
+    for(const w of data.items)if(w.kind===metadata.kind&&w.readable&&[w.title,w.originalTitle].some(t=>titleKeys(t).some(key=>names.has(key))))found.set(w.id,w);
     if(found.size)break;
    }
    const items:ReadingCandidate[]=[];
@@ -32,7 +33,7 @@ export async function findReadingCandidates(metadata:Work,readers:Reader[]){
     const w=reader.detail?await reader.detail(result.sourceId):result;
     // Original novels can share titles with unrelated works or fan fiction.
     // Missing author data must not make such a work look like the original.
-    if(w.kind!==metadata.kind||!w.readable||![w.title,w.originalTitle].some(t=>names.has(normalizeTitle(t))))continue;
+    if(w.kind!==metadata.kind||!w.readable||![w.title,w.originalTitle].some(t=>titleKeys(t).some(key=>names.has(key))))continue;
     if(metadata.kind==='novel'&&(!authorKey(metadata.author)||authorKey(metadata.author)!==authorKey(w.author)))continue;
     const d=await reader.chapters(w.sourceId),first=d.items.find(c=>!c.locked&&!c.externalUrl);
     if(first)items.push({work:w,chapterCount:d.total,firstChapter:first});

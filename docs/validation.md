@@ -76,3 +76,15 @@
 - Discovery responses are bound to their category, source, query, page and filters. A changed selection immediately renders the loading state; an old result or error cannot be displayed under a new source. Aborted catalog, chapter and manga-content responses are ignored. Opening another detail cancels pending reading navigation.
 - Live browser verification: MangaBz work 234 (極主夫道) opened through Start reading into the in-site reader. Chapter 1 returned 16 image pages; pages 1 and 2 decoded at 640×500 and 640×910. Page mode and next-page navigation worked. Japanese novel metadata remains distinct from available body sources.
 - Validation: 49 tests passed, TypeScript check and production build succeeded.
+
+## 新增日轻与漫画源（2026-11-02）
+
+- 环境维护清理了此前尚未发布的工作区。本轮从 Sites 已保存源码恢复，重新安装依赖并补回适配；未将先前未完成的改动当作已上线。
+- 59 项 Node 测试通过；TypeScript 检查和本地 Vinext / Workers 生产构建通过。新增用例包含繁简与括号别名、严格作者匹配、目录归属、非执行正文路径解析、图文位置、图片票据与固定 CDN、访客额度耗尽、正文可读而源站图片缺失的检测结果。
+- 新增 `n8novel` 和 `komiic`。先以未启用状态部署固定样本完整阅读检测，取得生产结果后，环境修订 5 将其加入 `PUBLIC_READING_SOURCES`。保留 `sfacg,bh3,mangabz,manhuagui`；未启用受验证或登录限制的来源。
+- N8 生产样本 9236（《敗北女角太多了！(敗犬女主太多了！)》，作者雨森たきび）：108 章。序章和第一章正文合计 27,234 字符（包括段落换行），通过本站内容接口读取。云浏览器进入本站阅读器，序章显示 14 段、268 个正文字符；下一章显示 1,043 段、24,856 个正文字符。目录分页合并和下一章操作正常。
+- 同一 N8 旧版样本封面及插图 116303 的源站图片文件不可用。检测明确记录 `coverBytes=0`、`illustrationBytes=0` 和缺图提示；不将其记为图文全部通过。保留源站的真实图片路径，失效时显示失败提示，正文仍可阅读。目录标题清理来源的 `/ 章节数` 后缀，避免重复卷名。
+- Komiic 生产样本 466（《膽大黨 (超自然武裝噹噠噹)》，龍幸伸）：250 个分话目录；第一话 7380 完整清单 64 页，取得 350,712 字节真实 JPEG，封面 19,068 字节。云浏览器确认第一页 1960×1439、第二页 1960×1435；逐页模式显示 1/64、2/64。下一话 7381 返回 51 页，首张图解码为 822×1200。图片均通过本站网关加载。
+- Komiic 图片请求采用来源普通 `getImageTicket` 流程。票据仅在服务端请求固定 CDN；不绕过登录或访客图片额度。阅读页展示本次额度查询结果。不会把样本成功描述为全站永久可用。
+- 当前实际发布地址由 Sites 返回为 `https://lingqi-books.tarokiki.chatgpt.site`，保留同一 Site ID 与 public 访问范围。
+- 完整调研与未启用来源的原因见 [source-expansion.md](source-expansion.md)。
