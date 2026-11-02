@@ -1,7 +1,7 @@
 import {load} from 'cheerio/slim';
 import iconv from 'iconv-lite';
 import {richText} from '../../services/content-bridge/richtext.mjs';
-import {cached,htmlPage,publicUrl,request,imageResponse} from './network';
+import {cached,htmlPage,publicUrl,requestImage} from './network';
 import {SourceError} from './source-errors';
 import type {Work,Chapter,ContentBlock,ReadingContent} from './model';
 export const NOVEL_SOURCES={wenku8:{name:'轻小说文库',base:'https://www.wenku8.net',charset:'gb18030'},bilinovel:{name:'哔哩轻小说·繁体',base:'https://tw.linovelib.com',charset:'utf-8'},esj:{name:'ESJ Zone',base:'https://www.esjzone.one',charset:'utf-8'},masiro:{name:'真白萌',base:'https://masiro.me',charset:'utf-8'}};
@@ -48,5 +48,5 @@ export async function novelContent(s:NovelSource,id:string,workId:string):Promis
 export async function novelImage(s:NovelSource,params:URLSearchParams){const cover=params.get('cover');let url:URL;let referer=cfg(s).base;
  if(cover){url=publicUrl(cover);if(!imageAllowed(s,url))throw new Error('图片地址不在此来源范围');}
  else {const id=params.get('id')||'',workId=params.get('workId')||'',index=Number(params.get('index'));if(!params.has('index')||!Number.isInteger(index)||index<0)throw new Error('图片序号无效');const content=await novelContent(s,id,workId);const block=content.blocks.filter(b=>b.type==='image')[index];if(!block||block.type!=='image')throw new Error('插图不存在');url=publicUrl(block.url);referer=content.sourceUrl;}
- if(!imageAllowed(s,url))throw new Error('图片来源不匹配');return imageResponse(await request(url,{Referer:referer,Accept:'image/avif,image/webp,image/*'}));}
+ if(!imageAllowed(s,url))throw new Error('图片来源不匹配');return requestImage(url,{Referer:referer,Accept:'image/avif,image/webp,image/*'});}
 export function withNovelImagePaths(s:NovelSource,id:string,workId:string,content:ReadingContent){let index=0;return {...content,blocks:content.blocks.map(b=>b.type==='image'?{...b,url:'/api/reader-image?'+new URLSearchParams({source:s,id,workId,index:String(index++)})}:b)};}

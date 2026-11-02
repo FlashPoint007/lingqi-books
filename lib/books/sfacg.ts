@@ -1,6 +1,6 @@
 import {load} from 'cheerio/slim';
 import {richText} from '../../services/content-bridge/richtext.mjs';
-import {cached,htmlPage,publicUrl,request,imageResponse} from './network';
+import {cached,htmlPage,publicUrl,requestImage} from './network';
 import {SourceError} from './source-errors';
 import type {Work,Chapter,ContentBlock,ReadingContent} from './model';
 
@@ -65,5 +65,5 @@ export async function sfImage(p:URLSearchParams){
  const workId=numeric(p.get('workId')||'');let url:string,referer:string;
  if(p.get('kind')==='cover'){const d=await data(workId);url=d.coverUrl;referer=d.work.url;if(!url)throw new Error('封面不可用');}
  else {const index=Number(p.get('index'));if(!p.has('index')||!Number.isInteger(index)||index<0)throw new Error('图片索引无效');const d=await content(p.get('id')||'',workId);url=d.images[index];referer=d.sourceUrl;if(!url)throw new Error('图片索引无效');}
- return imageResponse(await request(new URL(imageUrl(url)),{Referer:referer}));
+ return requestImage(new URL(imageUrl(url)),{Referer:referer});
 }

@@ -35,4 +35,25 @@ export async function htmlPage(url:URL,headers:Record<string,string>={},charset=
  return Object.keys(headers).some(k=>/^(?:cookie|authorization)$/i.test(k))?job():cached('html:'+url.href,job);
 }
 export async function jsonRequest(url:URL,headers:Record<string,string>={}){return cached('json:'+url.href,async()=>{const r=await request(url,headers);if(r.status===401||r.status===403)throw new Error('服务鉴权失败，请检查服务端配置');if(!r.ok)throw new Error(`服务暂不可用（${r.status}）`);try{return JSON.parse(new TextDecoder().decode(await limitedBytes(r,4000000)));}catch{throw new Error('服务返回的数据无效');}},60000);}
-export async function imageResponse(r:Response){const type=r.headers.get('content-type')||'';if(!r.ok||!/^image\/(jpeg|png|webp|gif|avif)(;|$)/i.test(type))throw new Error('图片暂不可用');const bytes=await limitedBytes(r,15000000);return new Response(bytes as BodyInit,{headers:{'Content-Type':type,'X-Content-Type-Options':'nosniff','Cache-Control':'private, max-age=600'}});}
+export function imageMimeType(b:Uint8Array){if(b[0]===255&&b[1]===216&&b[2]===255)return 'image/jpeg';if(b[0]===137&&b[1]===80&&b[2]===78&&b[3]===71)return 'image/png';const h=new TextDecoder('latin1').decode(b.slice(0,16));if(/^GIF8[79]a/.test(h))return 'image/gif';if(h.startsWith('RIFF')&&h.slice(8,12)==='WEBP')return 'image/webp';if(h.slice(4,8)==='ftyp'&&/^avi[fs]/.test(h.slice(8,12)))return 'image/avif';throw new SourceError('invalid_response','来源未返回有效图片','请检测图片来源，或选择其他阅读版本。');}
+export async function imageResponse(r:Response){
+ const declared=(r.headers.get('content-type')||'').split(';')[0].trim().toLowerCase().replace(/^image\/jpg$/,'image/jpeg').replace(/^image\/x-png$/,'image/png');
+ const bytes=await limitedBytes(r,15000000);
+ const supported=/^image\/(jpeg|png|webp|gif|avif)$/.test(declared);
+ if(!r.ok||!supported&&!['','application/octet-stream','binary/octet-stream'].includes(declared)){
+  const text=new TextDecoder().decode(bytes.slice(0,64000));assertHtmlPage(text,new URL(r.url||'https://source.invalid/image'),r.status);
+  if(/<title[^>]*>\s*404[.\s]|<h1[^>]*>\s*404\b/i.test(text))throw new SourceError('not_found','来源图片文件不存在','此图片链接已失效，可以切换同作品的其他版本。',false,404);
+  throw new SourceError('invalid_response','图片暂不可用：来源未返回图片','需要检查来源图片格式或图片地址。',false,r.status);
+ }
+ const type=supported?declared:imageMimeType(bytes);if(!bytes.length)throw new SourceError('invalid_response','来源返回了空图片','请稍后重试。',true);
+ return new Response(bytes as BodyInit,{headers:{'Content-Type':type,'X-Content-Type-Options':'nosniff','Cache-Control':'private, max-age=600'}});
+}
+/** Images use image negotiation, bounded redirects and the same source queue.
+ * Callers still validate work membership and pin the image origin/path. */
+export async function requestImage(url:URL,headers:Record<string,string>={}){
+ let current=url;for(let i=0;i<4;i++){
+  const r=await request(current,{Accept:'image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.8',...headers});
+  if([301,302,303,307,308].includes(r.status)){await r.body?.cancel();const location=r.headers.get('location');if(!location)throw new SourceError('invalid_response','图片跳转缺少地址','需要更新图片来源。');const next=publicUrl(location,current.href);if(next.origin!==url.origin)throw new SourceError('domain_changed','来源图片跳转到其他图床','需要核对新的图片节点后更新适配。');current=next;continue;}
+  return imageResponse(r);
+ }throw new SourceError('domain_changed','来源图片跳转次数过多','需要核对图片地址。');
+}

@@ -3,7 +3,7 @@ import {kiSearch,kiWork,kiChapters,kiContent,kiImage} from './komiic';
 import {guiSearch,guiWork,guiChapters,guiContent,guiImage} from './manhuagui';
 import {lnSearch,lnWork,lnChapters,lnContent,lnImage} from './lnovel';
 import {load} from 'cheerio/slim';
-import {cached,htmlPage,request,imageResponse} from './network';
+import {cached,htmlPage,requestImage} from './network';
 import {SourceError} from './source-errors';
 import type {Work,Chapter,ReadingContent} from './model';
 import {bzSearch,bzWork,bzChapters,bzContent,bzImage} from './mangabz';
@@ -43,5 +43,5 @@ export async function publicImage(s:PublicSource,p:URLSearchParams){
  enabled(s);if(s==='n8novel')return n8Image(p);if(s==='komiic')return kiImage(p);if(s==='manhuagui')return guiImage(p);if(s==='lnovel')return lnImage(p);if(s==='mangabz')return bzImage(p);if(s==='sfacg')return sfImage(p);const workId=numeric(p.get('workId')||'');let url:string,referer:string;
  if(p.get('kind')==='cover'){await bhWork(workId);url=`${CDN}/new_static_v2/comic/book_cover/${workId}.jpg`;referer=`${BH}/book/${workId}`;}
  else {const index=Number(p.get('index'));if(!p.has('index')||!Number.isInteger(index)||index<0)throw new Error('图片索引无效');const d=await bhManifest(p.get('id')||'',workId);url=d.images[index];referer=d.sourceUrl;if(!url)throw new Error('图片索引无效');}
- return imageResponse(await request(new URL(url),{Referer:referer}));
+ return requestImage(new URL(url),{Referer:referer});
 }

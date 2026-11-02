@@ -1,5 +1,5 @@
 import type {Work,Chapter,ReadingContent} from './model';
-import {cached,jsonRequest,request,imageResponse} from './network';
+import {cached,jsonRequest,requestImage} from './network';
 export type ReaderService='suwayomi'|'maki';
 export function isReaderService(s:string):s is ReaderService{return s==='suwayomi'||s==='maki';}
 const prefix=(s:ReaderService)=>s.toUpperCase();
@@ -19,4 +19,4 @@ async function manifest(s:ReaderService,id:string,workId:string){ids(s,workId);c
 export async function serviceContent(s:ReaderService,id:string,workId:string):Promise<ReadingContent>{const d=await manifest(s,id,workId),work=await serviceWork(s,workId);return {blocks:[],images:Array.from({length:d.count},(_,index)=>'/api/reader-image?'+new URLSearchParams({source:s,id,workId,index:String(index)})),sourceUrl:work.url,attribution:s==='maki'?'Maki 书库':'Suwayomi 扩展',rightsUrl:work.url};}
 export async function serviceImage(s:ReaderService,p:URLSearchParams){const workId=p.get('workId')||'';const {manga}=ids(s,workId);let path;if(p.get('kind')==='cover'){const w=await serviceWork(s,workId);if(s==='maki'){const b=await api(s,`/api/v1/series/${manga}`);const u=new URL(b.coverUrl||'',base(s));if(u.origin!==new URL(base(s)).origin)throw new Error('书库封面不属于当前服务');path=u.pathname+u.search;}else path=`/api/v1/manga/${manga}/thumbnail`;}
  else {const index=Number(p.get('index'));if(!p.has('index')||!Number.isInteger(index)||index<0)throw new Error('图片序号无效');const d=await manifest(s,p.get('id')||'',workId);if(index>=d.count)throw new Error('图片序号超出章节');path=s==='maki'?`/api/v1/reader/chapter/${d.chapterId}/page/${index}`:`/api/v1/manga/${d.manga}/chapter/${d.chapterId}/page/${index}?updateProgress=false`;}
- return imageResponse(await request(new URL(base(s)+path),headers(s)));}
+ return requestImage(new URL(base(s)+path),headers(s));}

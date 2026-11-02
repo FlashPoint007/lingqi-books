@@ -1,6 +1,6 @@
 import {load} from 'cheerio/slim';
 import LZString from 'lz-string';
-import {cached,htmlPage,request,imageResponse} from './network';
+import {cached,htmlPage,requestImage} from './network';
 import {SourceError} from './source-errors';
 import type {Work,Chapter,ReadingContent} from './model';
 
@@ -74,4 +74,4 @@ export function parseGuiManifest(html:string,workId:string,chapterId:string){
 }
 async function manifest(id:string,workId:string){numeric(workId);if(!id.startsWith(workId+'~'))throw new Error('章节与作品不匹配');const part=numeric(id.slice(workId.length+1));if(!(await detail(workId)).chapters.some(c=>c.id===id))throw new Error('章节不在作品目录中');return cached('gui:pages:'+id,async()=>{const sourceUrl=`${BASE}/comic/${workId}/${part}.html`;return {sourceUrl,images:parseGuiManifest((await htmlPage(new URL(sourceUrl))).html,workId,part)};},60000);}
 export async function guiContent(id:string,workId:string):Promise<ReadingContent>{const d=await manifest(id,workId);return {blocks:[],images:d.images.map((_,i)=>imagePath(workId,id,i)),sourceUrl:d.sourceUrl,attribution:'漫画柜 · 汉化组未标注',rightsUrl:`${BASE}/comic/${workId}/`};}
-export async function guiImage(p:URLSearchParams){const workId=numeric(p.get('workId')||'');if(p.get('kind')==='cover')return imageResponse(await request(new URL((await detail(workId)).cover),{Referer:BASE+'/'}));const d=await manifest(p.get('id')||'',workId),index=Number(p.get('index'));if(!p.has('index')||!Number.isInteger(index)||index<0||!d.images[index])throw new Error('图片索引无效');return imageResponse(await request(new URL(d.images[index]),{Referer:BASE+'/'}));}
+export async function guiImage(p:URLSearchParams){const workId=numeric(p.get('workId')||'');if(p.get('kind')==='cover')return requestImage(new URL((await detail(workId)).cover),{Referer:BASE+'/'});const d=await manifest(p.get('id')||'',workId),index=Number(p.get('index'));if(!p.has('index')||!Number.isInteger(index)||index<0||!d.images[index])throw new Error('图片索引无效');return requestImage(new URL(d.images[index]),{Referer:BASE+'/'});}
