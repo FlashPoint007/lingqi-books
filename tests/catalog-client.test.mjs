@@ -1,0 +1,12 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import path from 'node:path';
+import ts from 'typescript';
+const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
+const source=await readFile(new URL('../lib/books/catalog-client.ts',import.meta.url),'utf8');await writeFile(path.join(dir,'client.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
+const {catalogRequest}=await import(path.join(dir,'client.mjs'));test.after(()=>rm(dir,{recursive:true,force:true}));
+const stalled=(_,options)=>new Promise((resolve,reject)=>{if(options.signal.aborted)reject(options.signal.reason);else options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true});});
+test('a stalled catalog read times out and can be retried successfully',async()=>{const original=globalThis.fetch;globalThis.fetch=stalled;try{await assert.rejects(catalogRequest({source:'fixture'},undefined,10),/读取超时/);globalThis.fetch=async()=>Response.json({items:[{id:'fixture'}]});assert.equal((await catalogRequest({source:'fixture'})).items.length,1);}finally{globalThis.fetch=original;}});
+test('intentional reader cancellation remains an abort instead of a timeout error',async()=>{const original=globalThis.fetch;globalThis.fetch=stalled;const c=new AbortController();try{const p=catalogRequest({action:'chapters'},c.signal,1000);c.abort();await assert.rejects(p,e=>e.name==='AbortError');}finally{globalThis.fetch=original;}});
+test('HTML gateway errors get a readable message and source hints are retained',async()=>{const original=globalThis.fetch;try{globalThis.fetch=async()=>new Response('<h1>Unavailable</h1>',{status:503});await assert.rejects(catalogRequest({source:'fixture'}),/网站连接异常（503）/);globalThis.fetch=async()=>Response.json({error:'来源需要权限',hint:'仅提供公开章节'},{status:502});await assert.rejects(catalogRequest({source:'fixture'}),/来源需要权限。仅提供公开章节/);}finally{globalThis.fetch=original;}});
