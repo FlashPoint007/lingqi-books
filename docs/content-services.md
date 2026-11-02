@@ -150,3 +150,5 @@ LNReader 模块的 `filters` 默认值现在传给排行榜方法，避免插件
 实现参考公开插件的协议和页面选择器，未安装或运行第三方插件脚本：[LNReader 插件](https://github.com/LNReader/lnreader-plugins)（Kakuyomu、Linovel）与 [Keiyoushi DM5 适配](https://github.com/keiyoushi/extensions-source/tree/main/src/zh/dm5)。本站适配器保留独立的作品归属、受限内容、图床和响应大小校验。
 
 阅读器提供可搜索和分页的目录、四种背景、字号/行距/宽度/字体设置、固定翻章栏、键盘操作及章内位置保存。段落锚点结合相对位置用于恢复正文；插图加载引起高度变化时继续校准，直到读者主动滚动。漫画复用完整目录，支持条漫和逐页模式。阅读进度仍保存在当前浏览器，不提供跨设备账户同步。
+
+本轮最终通过正式节点检测并启用 `linovel,dm5`；`kakuyomu` 正式节点曾返回 403，保持关闭。轻之文库仅代表中文原创补充，不标注为日本小说中文译文。
