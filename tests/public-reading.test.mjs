@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','chinese','n8novel','komiic','source-errors','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','public-reading']){
+for(const name of ['model','chinese','n8novel','komiic','source-errors','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','lnovel-api','public-reading']){
  const source=(await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8')).replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
@@ -72,3 +72,38 @@ test('MangaBz refuses crossed works, VIP chapters and executable image responses
 });
 
 test('production-blocked novel reader reports the verification reason and is not enabled',async()=>{delete process.env.PUBLIC_READING_SOURCES;assert.equal(pub.publicSourceEnabled('lnovel'),false);await assert.rejects(pub.publicSearch('lnovel','',1),e=>e.code==='verification_required'&&e.retryable===false);});
+
+test('lnovel API binds volumes, chapters and in-order illustrations to the selected work',async()=>{
+ const lnovel=await import(path.join(dir,'lnovel-api.mjs'));
+ const origin='https://lnovel.animes.garden';
+ const cover=origin+'/bili/files/article/image/9/910040/910040s.jpg';
+ const illustration=origin+'/bili/img3/9/910040/910042/page.jpg';
+ const other=origin+'/bili/img3/9/910041/910042/page.jpg';
+ const paths=[];
+ const oldFetch=globalThis.fetch;
+ globalThis.fetch=async input=>{
+  const url=new URL(String(input));
+  paths.push(url.pathname);
+  assert.equal(url.origin,origin);
+  const data={
+   '/api/bili/novel/910040':{nid:910040,name:'星空邮局',cover,labels:['日本轻小说'],authors:[{name:'测试作者',position:'author'}],volumes:[{nid:910040,vid:910041,title:'第一卷'}]},
+   '/api/bili/novel/910040/vol/910041':{nid:910040,vid:910041,chapters:[{nid:910040,vid:910041,cid:910042,title:'邮差'}]},
+   '/api/bili/novel/910040/chapter/910042':{nid:910040,vid:910041,cid:910042,images:[{src:illustration},{src:other}],
+    content:`<p>一封信。</p><img src="${illustration}"><script>shouldNotRun()</script><img src="${other}"><p>送达。</p>`},
+  }[url.pathname];
+  if(data)return Response.json({ok:true,provider:'bilinovel',data});
+  assert.equal(url.href,illustration);
+  return new Response(Uint8Array.from([255,216,255,0]),{headers:{'content-type':'image/jpeg'}});
+ };
+ try{
+  const catalog=await lnovel.lnovelApiChapters('910040',1);
+  assert.equal(catalog.items[0].id,'910040~910041~910042');
+  await assert.rejects(lnovel.lnovelApiContent('910040~910041~910043','910040'),/目录/);
+  assert.ok(!paths.includes('/api/bili/novel/910040/chapter/910043'));
+  const body=await lnovel.lnovelApiContent(catalog.items[0].id,'910040');
+  assert.deepEqual(body.blocks.map(block=>block.type),['text','image','text']);
+  assert.equal(body.text,'一封信。\n\n送达。');
+  const result=await lnovel.lnovelApiImage(new URLSearchParams({workId:'910040',id:catalog.items[0].id,index:'0'}));
+  assert.equal(result.headers.get('content-type'),'image/jpeg');
+ }finally{globalThis.fetch=oldFetch;}
+});

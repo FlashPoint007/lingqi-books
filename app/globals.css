@@ -159,3 +159,24 @@ dialog.reading-dialog:not([open]){display:none}.reading-dialog::backdrop{backgro
 @media (prefers-reduced-motion: reduce) {
   .reading-spinner {animation: none}
 }
+
+.reading-pagebar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(12px, 4vw, 36px);
+  flex: none;
+  padding: 2px 8px;
+  border-top: 1px solid var(--reader-border);
+  background: var(--reader-panel);
+  color: var(--reader-ui-text);
+  font-size: 12px;
+}
+.reading-pagebar button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 40px;
+  padding: 0 10px;
+}
+.reading-pagebar output {font-variant-numeric: tabular-nums}

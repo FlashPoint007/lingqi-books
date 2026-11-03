@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','chinese','n8novel','komiic','source-errors','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery','reading-probe','source-selection','reading-preferences']){
+for(const name of ['model','chinese','n8novel','komiic','source-errors','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','lnovel-api','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery','reading-probe','source-selection','reading-preferences']){
  let source=await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8');source=source.replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
 const route=(await readFile(new URL('../app/api/catalog/route.ts',import.meta.url),'utf8')).replace(/from '\.\.\/\.\.\/\.\.\/lib\/books\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,'catalog.mjs'),ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
@@ -138,4 +138,33 @@ test('saved reader appearance migrates old settings and validates custom colors'
  assert.equal(custom.backgroundColor,'#1c211f');
  assert.equal(custom.textColor,'#464839');
  assert.equal(readableTextColor(custom.backgroundColor),'#ffffff');
+});
+
+test('MangaDex English is opt-in and separate from the default Chinese catalog',async()=>{
+ const discovery=await import(path.join(dir,'reading-discovery.mjs'));
+ const env=process.env.PUBLIC_READING_SOURCES;
+ process.env.PUBLIC_READING_SOURCES='mangadex-en';
+ try{
+  assert.deepEqual(discovery.readingSources('manga'),['mangadex']);
+  assert.deepEqual(discovery.readingSources('manga',true),['mangadex','mangadex-en']);
+  const original=globalThis.fetch;
+  const id='71000100-0000-4000-a000-000000000001';
+  globalThis.fetch=async input=>{
+   const url=new URL(String(input));
+   if(url.pathname==='/manga/'+id)return Response.json({data:{id,attributes:{title:{en:'Sample'},contentRating:'safe',originalLanguage:'ja'}}});
+   assert.equal(url.pathname,'/manga/'+id+'/feed');
+   assert.deepEqual(url.searchParams.getAll('translatedLanguage[]'),['en']);
+   return Response.json({total:101,data:[
+    {id:'en',relationships:[],attributes:{chapter:'1',translatedLanguage:'en',pages:20}},
+    {id:'zh',relationships:[],attributes:{chapter:'1',translatedLanguage:'zh',pages:20}},
+   ]});
+  };
+  try{
+   const response=await catalog.GET(new Request('https://site.example/api/catalog?action=chapters&source=mangadex-en&id='+id));
+   const data=await response.json();
+   assert.equal(response.status,200);
+   assert.equal(data.hasMore,true);
+   assert.deepEqual(data.items.map(chapter=>chapter.id),['en']);
+  }finally{globalThis.fetch=original;}
+ }finally{if(env===undefined)delete process.env.PUBLIC_READING_SOURCES;else process.env.PUBLIC_READING_SOURCES=env;}
 });

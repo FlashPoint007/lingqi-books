@@ -3,19 +3,20 @@ import {readingProbe} from '../../../lib/books/reading-probe';
 import {readingSources,findReadingCandidates} from '../../../lib/books/reading-discovery';
 import {PUBLIC_SOURCES,isPublicSource,publicSourceEnabled,publicSearch,publicWork,publicChapters,publicContent} from '../../../lib/books/public-reading';
 import {bridgeConfigured,bridgeSources,bridgeSearch,bridgeChapters,bridgeContent,novelBridgeSource} from '../../../lib/books/bridge';
-import {searchBangumi,searchManga,mangaDetail,chapters,pages,narou,upstream,bangumiWork} from '../../../lib/books/sources';
+import {searchBangumi,searchManga,mangaDetail,chapters,pages,narou,upstream,bangumiWork,isMangaDex,mangaDexEnabled} from '../../../lib/books/sources';
 import {isNovelSource,NOVEL_SOURCES,searchNovel,novelDetail,novelChapters,novelContent,withNovelImagePaths} from '../../../lib/books/web-novels';
 import {isReaderService,serviceConfigured,serviceSearch,serviceWork,serviceChapters,serviceContent} from '../../../lib/books/reader-services';
 import {observe,observed,sourceFailure} from '../../../lib/books/availability';
 function failure(source:string,action:string,error:unknown){const details=sourceFailure(error);observe(source,false,details.message,details);console.warn(JSON.stringify({event:'source_failure',source,action,code:details.code,httpStatus:details.httpStatus}));return details;}
-async function search(source:string,q:string,page:number,kind:string,sort:string,tag:string):Promise<any>{if(isPublicSource(source))return kind===PUBLIC_SOURCES[source].kind?publicSearch(source,q,page):{items:[],total:0,hasMore:false};if(isNovelSource(source)){const mapped=novelBridgeSource(source);return kind==='novel'?(mapped?bridgeSearch(q,page,kind,mapped):searchNovel(source,q,page,sort)):{items:[],total:0,hasMore:false};}if(isReaderService(source))return kind==='manga'?serviceSearch(source,q,page):{items:[],total:0,hasMore:false};if(source==='bridge')return bridgeSearch(q,page,kind);if(source==='bangumi')return searchBangumi(q,kind,page,sort,tag);if(source==='mangadex')return searchManga(q,page,sort);if(source==='narou')return narou(q,page);throw new Error('不支持的来源');}
+async function search(source:string,q:string,page:number,kind:string,sort:string,tag:string):Promise<any>{if(isPublicSource(source))return kind===PUBLIC_SOURCES[source].kind?publicSearch(source,q,page):{items:[],total:0,hasMore:false};if(isNovelSource(source)){const mapped=novelBridgeSource(source);return kind==='novel'?(mapped?bridgeSearch(q,page,kind,mapped):searchNovel(source,q,page,sort)):{items:[],total:0,hasMore:false};}if(isReaderService(source))return kind==='manga'?serviceSearch(source,q,page):{items:[],total:0,hasMore:false};if(source==='bridge')return bridgeSearch(q,page,kind);if(source==='bangumi')return searchBangumi(q,kind,page,sort,tag);if(isMangaDex(source))return searchManga(q,page,sort,source);if(source==='narou')return narou(q,page);throw new Error('不支持的来源');}
 export async function GET(req:Request){
  const p=new URL(req.url).searchParams;const action=p.get('action')||'search',source=p.get('source')||'readable',id=p.get('id')||'',workId=p.get('workId')||'';const q=(p.get('q')||'').trim();const page=Number(p.get('page')||1),kind=p.get('kind')==='manga'?'manga':'novel',sort=p.get('sort')||'popular';
  if(q.length>100||id.length>2000||workId.length>1500||!Number.isInteger(page)||page<1||page>100)return Response.json({error:'搜索参数无效'},{status:400});
  try{
- if(action==='verify-reading'){if(!['n8novel','komiic','kakuyomu','linovel','dm5'].includes(source))return Response.json({error:'不支持的检测来源'},{status:400});return Response.json(await readingProbe(source),{headers:{'Cache-Control':'private, no-store'}});}
+ if(action==='verify-reading'){if(!['n8novel','komiic','kakuyomu','linovel','dm5','lnovelapi','mangadex-en'].includes(source))return Response.json({error:'不支持的检测来源'},{status:400});return Response.json(await readingProbe(source),{headers:{'Cache-Control':'private, no-store'}});}
+ if(isMangaDex(source)&&!mangaDexEnabled(source))return Response.json({error:'此阅读版本尚未启用'},{status:400});
  if(action==='bridge-status'){if(!bridgeConfigured())return Response.json({connected:false,sources:[],message:'尚未连接内容服务。受登录或特殊解析限制的来源，需要先配置兼容服务。'});try{return Response.json({connected:true,sources:await bridgeSources()});}catch{return Response.json({connected:false,sources:[],message:'内容服务连接失败'});}}
- if(action==='status'){const sources=[{id:'bangumi',name:'Bangumi',kind:'novel',state:'enabled',description:'作品资料与评分；详情中可搜索站内正文源'},{id:'mangadex',name:'MangaDex',kind:'manga',state:'enabled',description:'中文日漫目录与站内图片阅读，保留汉化组署名'},...Object.entries(PUBLIC_SOURCES).map(([id,v])=>({id,name:v.name,kind:v.kind,state:publicSourceEnabled(id as keyof typeof PUBLIC_SOURCES)?'enabled':id==='lnovel'?'blocked':'pending',description:!publicSourceEnabled(id as keyof typeof PUBLIC_SOURCES)&&id==='lnovel'?'图文适配已完成；生产节点要求人机验证，暂未启用':v.description})),...Object.entries(NOVEL_SOURCES).map(([id,v])=>({id,name:v.name,kind:'novel',state:novelBridgeSource(id)?'configured':'added',description:novelBridgeSource(id)?'已选择对应内容服务；搜索、目录与插图通过该服务读取':id==='wenku8'?'目录、GBK 正文与插图读取；源站人机验证可能阻止访问':id==='bilinovel'?'繁体网页图文源；含分页读取，混淆正文需兼容服务':id==='esj'?'网页作品与图文正文；匿名可见范围受来源限制':'目录与图文读取；部分作品需登录或访问权限'})),...(['suwayomi','maki'] as const).map(id=>({id,name:id==='maki'?'Maki 个人书库':'Suwayomi 漫画扩展',kind:'manga',state:serviceConfigured(id)?'configured':'pending',description:serviceConfigured(id)?'连接已配置，可检测目录和整章图片':id==='maki'?'已加入阅读适配，等待实例地址、密钥与作品允许列表':'已加入扩展搜索与图片适配，等待实例地址和扩展允许列表'})),{id:'bridge',name:'其他 LNReader 插件',kind:'novel',state:bridgeConfigured()?'configured':'pending',description:'可选可信插件宿主，现支持有序图文正文'}];return Response.json({sources:sources.map(s=>({...s,readingEnabled:readingSources(s.kind==='manga'?'manga':'novel').includes(s.id),observation:observed(s.id)}))});}
+ if(action==='status'){const sources=[{id:'bangumi',name:'Bangumi',kind:'novel',state:'enabled',description:'作品资料与评分；详情中可搜索站内正文源'},{id:'mangadex',name:'MangaDex',kind:'manga',state:'enabled',description:'中文日漫目录与站内图片阅读，保留汉化组署名'},{id:'mangadex-en',name:'MangaDex·英文日漫',kind:'manga',state:mangaDexEnabled('mangadex-en')?'enabled':'pending',description:'英文独立目录，可单选阅读，保留翻译组署名'},...Object.entries(PUBLIC_SOURCES).map(([id,v])=>({id,name:v.name,kind:v.kind,state:publicSourceEnabled(id as keyof typeof PUBLIC_SOURCES)?'enabled':id==='lnovel'?'blocked':'pending',description:!publicSourceEnabled(id as keyof typeof PUBLIC_SOURCES)&&id==='lnovel'?'图文适配已完成；生产节点要求人机验证，暂未启用':v.description})),...Object.entries(NOVEL_SOURCES).map(([id,v])=>({id,name:v.name,kind:'novel',state:novelBridgeSource(id)?'configured':'added',description:novelBridgeSource(id)?'已选择对应内容服务；搜索、目录与插图通过该服务读取':id==='wenku8'?'目录、GBK 正文与插图读取；源站人机验证可能阻止访问':id==='bilinovel'?'繁体网页图文源；含分页读取，混淆正文需兼容服务':id==='esj'?'网页作品与图文正文；匿名可见范围受来源限制':'目录与图文读取；部分作品需登录或访问权限'})),...(['suwayomi','maki'] as const).map(id=>({id,name:id==='maki'?'Maki 个人书库':'Suwayomi 漫画扩展',kind:'manga',state:serviceConfigured(id)?'configured':'pending',description:serviceConfigured(id)?'连接已配置，可检测目录和整章图片':id==='maki'?'已加入阅读适配，等待实例地址、密钥与作品允许列表':'已加入扩展搜索与图片适配，等待实例地址和扩展允许列表'})),{id:'bridge',name:'其他 LNReader 插件',kind:'novel',state:bridgeConfigured()?'configured':'pending',description:'可选可信插件宿主，现支持有序图文正文'}];return Response.json({sources:sources.map(s=>({...s,readingEnabled:readingSources(s.kind==='manga'?'manga':'novel',true).includes(s.id),observation:observed(s.id)}))});}
  if(action==='reading-candidates'){
   const target=p.get('target')||'';
   let work:Work|undefined;
@@ -26,8 +27,8 @@ export async function GET(req:Request){
    work=bangumiWork(raw);
   }else if(isPublicSource(source)&&publicSourceEnabled(source)){
    work=await publicWork(source,id);
-  }else if(source==='mangadex'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)){
-   work=await mangaDetail(id);
+  }else if(isMangaDex(source)&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)){
+   work=await mangaDetail(id,source);
   }else if(isReaderService(source)&&serviceConfigured(source)){
    work=await serviceWork(source,id);
   }else if(source==='bridge'&&bridgeConfigured()){
@@ -35,17 +36,17 @@ export async function GET(req:Request){
    work=result.items.find(item=>item.sourceId===id);
   }
   if(!work)return Response.json({error:'未能确认当前作品来源'},{status:400});
-  const media=work.kind,available=readingSources(media);
+  const media=work.kind,available=readingSources(media,true);
   if(target&&!available.includes(target))return Response.json({error:'目标来源未启用或类型不匹配'},{status:400});
   const readers=(target?[target]:available).map(provider=>({
    id:provider,
    search:(query:string)=>search(provider,query,1,media,'popular',''),
-   detail:isPublicSource(provider)?(id:string)=>publicWork(provider,id):provider==='mangadex'?mangaDetail:undefined,
+   detail:isPublicSource(provider)?(id:string)=>publicWork(provider,id):isMangaDex(provider)?(id:string)=>mangaDetail(id,provider):undefined,
    chapters:(workId:string)=>{
     if(isPublicSource(provider))return publicChapters(provider,workId,1);
     if(isNovelSource(provider))return bridgeChapters(workId,1);
     if(isReaderService(provider))return serviceChapters(provider,workId,1);
-    if(provider==='mangadex')return chapters(workId,1);
+    if(isMangaDex(provider))return chapters(workId,1,provider);
     return bridgeChapters(workId,1);
    },
   }));
@@ -54,7 +55,7 @@ export async function GET(req:Request){
 
  if(action==='search'||action==='test'){
  const names=['all','readable'].includes(source)?readingSources(kind):[source];
- if(names.some(n=>!['bangumi','mangadex','narou','bridge'].includes(n)&&!isNovelSource(n)&&!isReaderService(n)&&!isPublicSource(n)))return Response.json({error:'不支持的来源'},{status:400});
+ if(names.some(n=>!['bangumi','narou','bridge'].includes(n)&&!isMangaDex(n)&&!isNovelSource(n)&&!isReaderService(n)&&!isPublicSource(n)))return Response.json({error:'不支持的来源'},{status:400});
  const results=await Promise.all(names.map(async n=>{try{const data=await search(n,q,page,kind,sort,p.get('tag')||'');const message=data.partial?'部分插件未能响应，已显示成功来源的作品':`已读取 ${data.items.length} 部作品`;observe(n,!data.partial,message);return {...data,status:{source:n,ok:!data.partial,message,retryable:!!data.partial}};}catch(e){return {items:[],total:0,hasMore:false,status:{source:n,ok:false,...failure(n,action,e)}};}}));
  return Response.json({items:results.flatMap(x=>x.items),total:results.reduce((s,x)=>s+x.total,0),hasMore:results.some(x=>x.hasMore??page*18<x.total),statuses:results.map(x=>x.status)},{headers:{'Cache-Control':'private, no-store'}});
  }
@@ -62,10 +63,10 @@ export async function GET(req:Request){
  if(isNovelSource(source)){if(action==='detail')return Response.json(await novelDetail(source,id));if(action==='chapters')return Response.json(await novelChapters(source,id,page));if(action==='content')return Response.json(withNovelImagePaths(source,id,workId,await novelContent(source,id,workId)));}
  if(isReaderService(source)){if(action==='detail')return Response.json(await serviceWork(source,id));if(action==='chapters')return Response.json(await serviceChapters(source,id,page));if(action==='content'||action==='pages')return Response.json(await serviceContent(source,id,workId));}
  if(source==='bridge'){if(!id)return Response.json({error:'作品或章节 ID 无效'},{status:400});if(action==='chapters')return Response.json(await bridgeChapters(id,page));if(action==='content')return Response.json(await bridgeContent(id,workId));}
- if(source==='mangadex'&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))return Response.json({error:'作品或章节 ID 无效'},{status:400});
- if(action==='detail'&&source==='mangadex')return Response.json(await mangaDetail(id));
+ if(isMangaDex(source)&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))return Response.json({error:'作品或章节 ID 无效'},{status:400});
+ if(action==='detail'&&isMangaDex(source))return Response.json(await mangaDetail(id,source));
  if(action==='detail'&&source==='bangumi'&&/^\d{1,10}$/.test(id)){const d=await upstream(`https://api.bgm.tv/v0/subjects/${id}`);if(d.nsfw||d.type!==1)throw new Error('不支持的作品');return Response.json(bangumiWork(d));}
- if(source==='mangadex'&&action==='chapters')return Response.json(await chapters(id,page));if(source==='mangadex'&&action==='pages')return Response.json(await pages(id));
+ if(isMangaDex(source)&&action==='chapters')return Response.json(await chapters(id,page,source));if(isMangaDex(source)&&action==='pages')return Response.json(await pages(id,source,workId));
  return Response.json({error:'不支持的操作'},{status:400});
  }catch(e){const details=failure(source,action,e);return Response.json({error:details.message,...details},{status:502});}
 }

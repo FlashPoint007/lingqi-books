@@ -1,5 +1,7 @@
 import {sourceFailure,SourceError} from './source-errors';
-import {cached} from './network';
+import {cached,requestImage} from './network';
+import {lnovelApiSearch,lnovelApiChapters,lnovelApiContent,lnovelApiImage} from './lnovel-api';
+import {searchManga,chapters,pages,mangaPageImage,mangaCoverUrl} from './sources';
 import {n8Search,n8Work,n8Chapters,n8Content,n8Image} from './n8novel';
 import {kiSearch,kiWork,kiChapters,kiContent,kiImage} from './komiic';
 import {kakuSearch,kakuWork,kakuChapters,kakuContent,kakuImage} from './kakuyomu';
@@ -9,6 +11,7 @@ import {dmSearch,dmWork,dmChapters,dmContent,dmImage} from './dm5';
  * URLs or image tickets are accepted or returned. Pending readers can be tested
  * on the production node before adding them to PUBLIC_READING_SOURCES. */
 export async function readingProbe(source:string){
+ if(source==='lnovelapi'||source==='mangadex-en')return verifiedEditionProbe(source);
  if(['kakuyomu','linovel','dm5'].includes(source))return newReaderProbe(source);
  if(source!=='n8novel'&&source!=='komiic')throw new Error('此来源没有固定阅读检测');
  return cached('reading-probe:'+source,async()=>{
@@ -38,5 +41,40 @@ async function newReaderProbe(source:string){
   let imageBytes=0;if(!adapter.novel){if(!content.images.length)throw new Error('检测章节没有图片');const r=await step('漫画页图',()=>adapter.image(new URLSearchParams({workId:adapter.id,id:chapter.id,index:'0'})));imageBytes=(await r.arrayBuffer()).byteLength;if(imageBytes<1000)throw new Error('检测页图不完整');}
   const cover=await step('作品封面',()=>adapter.image(new URLSearchParams({workId:adapter.id,kind:'cover'}))),coverBytes=(await cover.arrayBuffer()).byteLength;if(coverBytes<1000)throw new Error('检测封面不完整');
   return {items:[work],total:1,hasMore:false,statuses:[{source,ok:true,message:`已验证公开目录 ${catalog.total} 章、${adapter.novel?'真实正文':'整章图片列表与首张页图'}和封面`}],validation:{workId:adapter.id,chapterId:chapter.id,chapterCount:catalog.total,textCharacters,imageCount:content.images.length,imageBytes,coverBytes,checkedAt:new Date().toISOString()}};
+ },600000);
+}
+
+async function verifiedEditionProbe(source:'lnovelapi'|'mangadex-en'){
+ return cached('reading-probe:'+source,async()=>{
+  if(source==='lnovelapi'){
+   const workId='4649';
+   const ranking=await lnovelApiSearch('',1);
+   if(!ranking.items.length)throw new Error('榜单未返回作品');
+   const work=(await lnovelApiSearch(workId,1)).items[0];
+   const catalog=await lnovelApiChapters(workId,1);
+   const illustration=catalog.items.find(chapter=>chapter.id.endsWith('~274117'));
+   const chapter=catalog.items.find(chapter=>chapter.id.endsWith('~274118'));
+   if(!work||!illustration||!chapter)throw new Error('检测作品目录不完整');
+   const body=await lnovelApiContent(chapter.id,workId);
+   const textCharacters=body.text?.length||0;
+   if(textCharacters<200)throw new Error('检测正文过短');
+   const coverBytes=(await (await lnovelApiImage(new URLSearchParams({workId,kind:'cover'}))).arrayBuffer()).byteLength;
+   const illustrationBytes=(await (await lnovelApiImage(new URLSearchParams({workId,id:illustration.id,index:'0'}))).arrayBuffer()).byteLength;
+   if(coverBytes<1000||illustrationBytes<1000)throw new Error('检测封面或插图不完整');
+   return {items:[work],total:1,hasMore:false,statuses:[{source,ok:true,message:'已验证榜单、分卷目录、正文、封面与插图'}],
+    validation:{workId,chapterId:chapter.id,chapterCount:catalog.total,textCharacters,coverBytes,illustrationBytes,checkedAt:new Date().toISOString()}};
+  }
+  const found=await searchManga('Yotsuba',1,'popular',source);
+  const work=found.items.find(item=>[item.title,...item.aliases||[]].some(name=>/^yotsuba(?:to)?$/.test(name.toLowerCase().replace(/[^a-z]/g,''))));
+  if(!work)throw new Error('英文目录未返回样本作品');
+  const workId=work.sourceId,catalog=await chapters(workId,1,source);
+  const chapter=catalog.items.find(chapter=>!chapter.locked&&!chapter.externalUrl&&chapter.pages>0);
+  if(!chapter)throw new Error('检测作品没有可读英文章节');
+  const manifest=await pages(chapter.id,source,workId);
+  const imageBytes=(await (await mangaPageImage(chapter.id,0,source,workId)).arrayBuffer()).byteLength;
+  const coverBytes=(await (await requestImage(new URL(await mangaCoverUrl(workId)))).arrayBuffer()).byteLength;
+  if(!manifest.images.length||imageBytes<1000||coverBytes<1000)throw new Error('检测页图或封面不完整');
+  return {items:[work],total:1,hasMore:false,statuses:[{source,ok:true,message:'已验证英文目录、整章图片列表、页图及封面'}],
+   validation:{workId,chapterId:chapter.id,chapterCount:catalog.total,imageCount:manifest.images.length,imageBytes,coverBytes,checkedAt:new Date().toISOString()}};
  },600000);
 }

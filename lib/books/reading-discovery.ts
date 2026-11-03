@@ -3,13 +3,14 @@ import {bridgeConfigured,novelBridgeSource} from './bridge';
 import {serviceConfigured} from './reader-services';
 import {type Work,type Chapter} from './model';
 import {chineseKey,titleKeys} from './chinese';
+import {mangaDexEnabled} from './sources';
 import {sourceFailure} from './source-errors';
 
 /** Discovery includes configured readers only; metadata and blocked adapters are
  * deliberately absent. Explicit source diagnostics remain available separately. */
-export function readingSources(kind:'novel'|'manga'):string[]{
+export function readingSources(kind:'novel'|'manga',includeOtherLanguages=false):string[]{
  const direct=Object.entries(PUBLIC_SOURCES).filter(([id,s])=>s.kind===kind&&publicSourceEnabled(id as keyof typeof PUBLIC_SOURCES)).map(([id])=>id);
- if(kind==='manga')return ['mangadex',...direct,...(['suwayomi','maki'] as const).filter(serviceConfigured)];
+ if(kind==='manga')return ['mangadex',...(includeOtherLanguages&&mangaDexEnabled('mangadex-en')?['mangadex-en']:[]),...direct,...(['suwayomi','maki'] as const).filter(serviceConfigured)];
  return [...direct,...(bridgeConfigured()?['bridge',...['wenku8','bilinovel','esj','masiro'].filter(s=>!!novelBridgeSource(s))]:[])];
 }
 
