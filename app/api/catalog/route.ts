@@ -1,6 +1,6 @@
 import type {Work} from '../../../lib/books/model';
 import {readingProbe} from '../../../lib/books/reading-probe';
-import {readingSources,findReadingCandidates} from '../../../lib/books/reading-discovery';
+import {readingSources,findReadingCandidates,popularWorkIds} from '../../../lib/books/reading-discovery';
 import {PUBLIC_SOURCES,isPublicSource,publicSourceEnabled,publicSearch,publicWork,publicChapters,publicContent} from '../../../lib/books/public-reading';
 import {bridgeConfigured,bridgeSources,bridgeSearch,bridgeChapters,bridgeContent,novelBridgeSource} from '../../../lib/books/bridge';
 import {searchBangumi,searchManga,mangaDetail,chapters,pages,narou,upstream,bangumiWork,isMangaDex,mangaDexEnabled} from '../../../lib/books/sources';
@@ -57,7 +57,11 @@ export async function GET(req:Request){
  const names=['all','readable'].includes(source)?readingSources(kind):[source];
  if(names.some(n=>!['bangumi','narou','bridge'].includes(n)&&!isMangaDex(n)&&!isNovelSource(n)&&!isReaderService(n)&&!isPublicSource(n)))return Response.json({error:'不支持的来源'},{status:400});
  const results=await Promise.all(names.map(async n=>{try{const data=await search(n,q,page,kind,sort,p.get('tag')||'');const message=data.partial?'部分插件未能响应，已显示成功来源的作品':`已读取 ${data.items.length} 部作品`;observe(n,!data.partial,message);return {...data,status:{source:n,ok:!data.partial,message,retryable:!!data.partial}};}catch(e){return {items:[],total:0,hasMore:false,status:{source:n,ok:false,...failure(n,action,e)}};}}));
- return Response.json({items:results.flatMap(x=>x.items),total:results.reduce((s,x)=>s+x.total,0),hasMore:results.some(x=>x.hasMore??page*18<x.total),statuses:results.map(x=>x.status)},{headers:{'Cache-Control':'private, no-store'}});
+ const items:Work[]=results.flatMap(result=>result.items);
+ const recommendations=action==='search'&&!q&&page===1&&sort==='popular'&&!p.get('tag')&&['all','readable','bangumi'].includes(source);
+ return Response.json({items,total:results.reduce((s,x)=>s+x.total,0),hasMore:results.some(x=>x.hasMore??page*18<x.total),
+  statuses:results.map(x=>x.status),...(recommendations?{recommendationIds:popularWorkIds(items,kind,source==='bangumi')}:{})},
+  {headers:{'Cache-Control':'private, no-store'}});
  }
  if(isPublicSource(source)){if(action==='detail')return Response.json(await publicWork(source,id));if(action==='chapters')return Response.json(await publicChapters(source,id,page));if(action==='content'||action==='pages')return Response.json(await publicContent(source,id,workId));}
  if(isNovelSource(source)){if(action==='detail')return Response.json(await novelDetail(source,id));if(action==='chapters')return Response.json(await novelChapters(source,id,page));if(action==='content')return Response.json(withNovelImagePaths(source,id,workId,await novelContent(source,id,workId)));}

@@ -181,3 +181,16 @@ test('an unavailable edition does not hide a valid reading match on the same sou
  assert.equal(result.statuses[0].ok,true);
  assert.deepEqual(result.items.map(item=>item.work.sourceId),['available']);
 });
+
+test('recommendations keep provider order, deduplicate simplified and traditional titles and separate novel authors',()=>{
+ const make=(id,source,title,kind='manga',author='')=>({id,source,title,originalTitle:title,kind,author,readable:true});
+ const comics=[
+  make('one','mangadex','鬼灭之刃'),make('two','mangadex','图书馆'),
+  make('duplicate','komiic','鬼滅之刃'),make('three','komiic','星空'),make('four','dm5','咖啡'),
+ ];
+ assert.deepEqual(discovery.popularWorkIds(comics,'manga',false),['one','four','two','three']);
+ const novels=[
+  make('left','n8novel','旅人','novel','甲'),make('right','lnovelapi','旅人','novel','乙'),
+ ];
+ assert.deepEqual(discovery.popularWorkIds(novels,'novel',false),['left','right']);
+});

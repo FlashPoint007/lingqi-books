@@ -14,6 +14,34 @@ export function readingSources(kind:'novel'|'manga',includeOtherLanguages=false)
  return [...direct,...(bridgeConfigured()?['bridge',...['wenku8','bilinovel','esj','masiro'].filter(s=>!!novelBridgeSource(s))]:[])];
 }
 
+// Interleave each provider's order without ranking unrelated popularity metrics together.
+export function popularWorkIds(works:Work[],kind:Work['kind'],metadata:boolean){
+ const groups=new Map<string,Work[]>();
+ for(const work of works){
+  if(work.kind!==kind||(metadata?work.source!=='bangumi':!work.readable))continue;
+  const provider=work.provider||work.source;
+  const group=groups.get(provider)||[];
+  group.push(work);
+  groups.set(provider,group);
+ }
+ const ids:string[]=[],seen=new Set<string>();
+ const buckets=[...groups.values()];
+ for(let row=0;buckets.some(bucket=>row<bucket.length)&&ids.length<6;row++){
+  for(const bucket of buckets){
+   const work=bucket[row];
+   if(!work)continue;
+   const author=kind==='novel'?authorKey(work.author):'';
+   const titles=[work.title,work.originalTitle].map(chineseKey).filter(Boolean);
+   const keys=kind==='manga'||author?titles.map(title=>title+'|'+author):[];
+   if(ids.includes(work.id)||keys.some(key=>seen.has(key)))continue;
+   for(const key of keys)seen.add(key);
+   ids.push(work.id);
+   if(ids.length===6)break;
+  }
+ }
+ return ids;
+}
+
 export type ReadingCandidate={work:Work;chapterCount:number;firstChapter:Chapter};
 type Reader={id:string;search:(query:string)=>Promise<{items:Work[]}>;detail?:(id:string)=>Promise<Work>;chapters:(id:string)=>Promise<{items:Chapter[];total:number}>};
 function authorKey(author:string){return !author||/待补充|未知|未标注|unknown/i.test(author)?'':chineseKey(author);}

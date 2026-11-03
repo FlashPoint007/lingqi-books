@@ -3,38 +3,13 @@
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {ArrowRight,BookOpen,Layers,RotateCw} from 'lucide-react';
 import {catalogRequest} from '../lib/books/catalog-client';
-import {normalizeTitle,type Catalog,type Work} from '../lib/books/model';
+import type {Catalog,Work} from '../lib/books/model';
 
 type Kind=Work['kind'];
 export type RecommendationSource='bangumi'|'readable';
 type CatalogFeed={kind:Kind;source:string;data:Catalog;busy:boolean;error:string};
 type Result={key:string;data?:Catalog;error?:string};
 const SOURCE_KEY='lq-popular-source';
-
-function recommendations(works:Work[],kind:Kind,source:RecommendationSource){
- const groups=new Map<string,Work[]>();
- for(const work of works){
-  if(work.kind!==kind||(source==='readable'&&!work.readable))continue;
-  const group=groups.get(work.source)||[];
-  group.push(work);
-  groups.set(work.source,group);
- }
- const selected:Work[]=[],seen=new Set<string>();
- const buckets=[...groups.values()];
- for(let row=0;buckets.some(bucket=>row<bucket.length)&&selected.length<6;row++){
-  for(const bucket of buckets){
-   const work=bucket[row];
-   if(!work)continue;
-   const title=normalizeTitle(work.originalTitle||work.title);
-   const identity=title?title+'|'+(kind==='novel'?normalizeTitle(work.author):''):work.id;
-   if(seen.has(identity))continue;
-   seen.add(identity);
-   selected.push(work);
-   if(selected.length===6)break;
-  }
- }
- return selected;
-}
 
 export function PopularShelf({feed,onOpen,onBrowse,onRetry,cover,sourceName}:{
  feed?:CatalogFeed;
@@ -72,7 +47,10 @@ export function PopularShelf({feed,onOpen,onBrowse,onRetry,cover,sourceName}:{
  const data=shared?feed.data:result?.key===key?result.data:undefined;
  const error=shared?feed.error:result?.key===key?result.error:undefined;
  const loading=shared?feed.busy:!data&&!error;
- const items=data?recommendations(data.items,kind,source):[];
+ const byId=new Map(data?.items.map(work=>[work.id,work]));
+ const items=data?.recommendationIds
+  ?data.recommendationIds.flatMap(id=>{const work=byId.get(id);return work?[work]:[];})
+  :data?.items.filter(work=>work.kind===kind&&(source==='bangumi'||work.readable)).slice(0,6)||[];
  const failure=data?.statuses.find(status=>!status.ok);
  const changeSource=(value:RecommendationSource)=>{
   setPreference(value);
