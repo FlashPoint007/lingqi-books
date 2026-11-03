@@ -9,7 +9,7 @@ for(const name of ['model','source-errors','network','sources']){
  await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
 const {splitText,normalizeTitle}=await import(path.join(dir,'model.mjs'));
-const {bangumiWork,mangaWork,groupBlocked,upstream,mangaCoverUrl}=await import(path.join(dir,'sources.mjs'));
+const {bangumiWork,mangaWork,groupBlocked,upstream,mangaCoverUrl,searchBangumi,mangaPageImage}=await import(path.join(dir,'sources.mjs'));
 test.after(()=>rm(dir,{recursive:true,force:true}));
 test('UTF8 BOM, CRLF, chapter boundaries preserve actual text',()=>{const r=splitText('\uFEFF序章\r\n雨落在窗外。\r\n第一章 出发\r\n我拿起那本书。\r\n第二章 归来\r\n故事继续。');assert.equal(r.length,3);assert.equal(r[0].title,'序章');assert.equal(r[1].text,'我拿起那本书。');assert.equal(r[2].title,'第二章 归来');});
 test('unheaded TXT does not lose content',()=>{assert.deepEqual(splitText('第一行\n第二行'),[{title:'开始阅读',text:'第一行\n第二行'}]);});
@@ -37,4 +37,47 @@ test('MangaDex covers cannot expose restricted works or filename path traversal'
  const original=globalThis.fetch,id='33333333-3333-4333-8333-333333333333';
  globalThis.fetch=async()=>Response.json({data:{id,attributes:{contentRating:'pornographic',originalLanguage:'ja'},relationships:[]}});
  try{await assert.rejects(mangaCoverUrl(id),/全年龄/);const work=mangaWork({id,attributes:{contentRating:'safe',originalLanguage:'ja',title:{en:'Synthetic'},tags:[]},relationships:[{type:'cover_art',attributes:{fileName:'../other.jpg'}}]});assert.equal(work.cover,'');}finally{globalThis.fetch=original;}
+});
+
+test('Bangumi popularity filters the requested book category and retains an alternate cover',async()=>{
+ const previous=globalThis.fetch;
+ const image='https://lain.bgm.tv/pic/cover/c/sample.jpg',alternate='https://lain.bgm.tv/pic/cover/l/sample.jpg';
+ globalThis.fetch=async(url,init)=>{
+  assert.equal(new URL(url).pathname,'/v0/search/subjects');
+  const query=JSON.parse(init.body);
+  assert.equal(query.sort,'heat');
+  assert.deepEqual(query.filter.tag,['漫画']);
+  return Response.json({total:3,data:[
+   {id:601,type:1,name:'Comic',images:{common:image,large:alternate}},
+   {id:602,type:1,name:'Novel',platform:'小说'},
+   {id:603,type:1,name:'Hidden',platform:'漫画',nsfw:true},
+  ]});
+ };
+ try{
+  const {items}=await searchBangumi('','manga',1,'popular','');
+  assert.deepEqual(items.map(work=>work.id),['bangumi:601']);
+  assert.equal(items[0].kind,'manga');
+  assert.equal(items[0].readable,false);
+  assert.equal(items[0].coverFallback,alternate);
+ }finally{globalThis.fetch=previous;}
+});
+
+test('MangaDex data saver requests the compressed page first and falls back inside the image gateway',async()=>{
+ const previous=globalThis.fetch;
+ const workId='44444444-4444-4444-8444-444444444444',chapterId='55555555-5555-4555-8555-555555555555';
+ const attempts=[];
+ globalThis.fetch=async input=>{
+  const url=new URL(String(input));
+  if(url.pathname==='/chapter/'+chapterId)return Response.json({data:{attributes:{translatedLanguage:'zh'},relationships:[{type:'manga',id:workId}]}});
+  if(url.pathname==='/manga/'+workId)return Response.json({data:{id:workId,attributes:{title:{en:'Synthetic'},contentRating:'safe',originalLanguage:'ja'}}});
+  if(url.pathname==='/at-home/server/'+chapterId)return Response.json({baseUrl:'https://sample-cdn.test',chapter:{hash:'sample',data:['original.jpg'],dataSaver:['compressed.jpg']}});
+  attempts.push(url.pathname);
+  if(url.pathname.startsWith('/data-saver/'))return new Response('',{status:404});
+  return new Response(Uint8Array.of(255,216,255,224),{headers:{'Content-Type':'image/jpeg'}});
+ };
+ try{
+  const result=await mangaPageImage(chapterId,0,'mangadex',workId,'saver');
+  assert.equal(result.headers.get('Content-Type'),'image/jpeg');
+  assert.deepEqual(attempts,['/data-saver/sample/compressed.jpg','/data/sample/original.jpg']);
+ }finally{globalThis.fetch=previous;}
 });

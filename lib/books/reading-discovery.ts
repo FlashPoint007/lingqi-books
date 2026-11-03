@@ -42,15 +42,21 @@ export async function findReadingCandidates(metadata:Work, readers:Reader[], man
     if (matches.size) break;
    }
    const items: ReadingCandidate[] = [];
+   let lastError: unknown;
    for (const match of [...matches.values()].slice(0, 3)) {
-    const work = reader.detail ? await reader.detail(match.sourceId) : match;
-    if (work.kind !== metadata.kind || !work.readable || !matchesTitle(work)) continue;
-    // Keep same-title original novels by different authors separate.
-    if (metadata.kind === 'novel' && (!authorKey(metadata.author) || authorKey(metadata.author) !== authorKey(work.author))) continue;
-    const catalog = await reader.chapters(work.sourceId);
-    const firstChapter = catalog.items.find(chapter => !chapter.locked && !chapter.externalUrl);
-    if (firstChapter) items.push({work, chapterCount: catalog.total, firstChapter});
+    try {
+     const work = reader.detail ? await reader.detail(match.sourceId) : match;
+     if (work.kind !== metadata.kind || !work.readable || !matchesTitle(work)) continue;
+     // Keep same-title original novels by different authors separate.
+     if (metadata.kind === 'novel' && (!authorKey(metadata.author) || authorKey(metadata.author) !== authorKey(work.author))) continue;
+     const catalog = await reader.chapters(work.sourceId);
+     const firstChapter = catalog.items.find(chapter => !chapter.locked && !chapter.externalUrl);
+     if (firstChapter) items.push({work, chapterCount: catalog.total, firstChapter});
+    } catch (error) {
+     lastError = error;
+    }
    }
+   if (!items.length && lastError) throw lastError;
    return {items, status: {source: reader.id, ok: true, message: items.length ? '已找到同名作品目录' : '未找到同名可读目录'}};
   } catch (error) {
    return {items: [], status: {source: reader.id, ok: false, ...sourceFailure(error)}};

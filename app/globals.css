@@ -180,3 +180,45 @@ dialog.reading-dialog:not([open]){display:none}.reading-dialog::backdrop{backgro
   padding: 0 10px;
 }
 .reading-pagebar output {font-variant-numeric: tabular-nums}
+
+/* The recommendation rail and the full catalog have independent controls. */
+.popular-shelf {
+  --popular-accent: #4d6141;
+  margin: 26px 0 42px;
+  padding: clamp(16px, 2.6vw, 28px);
+  border: 1px solid #e2ddd1;
+  border-radius: 16px;
+  background: #faf8f1;
+}
+.popular-header, .popular-controls {display:flex; align-items:center; justify-content:space-between; gap:12px}
+.popular-header {align-items:flex-end; margin-bottom:16px}
+.popular-header h2 {font-family:var(--serif); font-size:clamp(24px, 3vw, 34px); margin:5px 0 0; font-weight:700}
+.popular-source {display:flex; align-items:center; gap:8px; color:#64655b; font-size:12px}
+.popular-source select {border:1px solid #dcd8cb; border-radius:7px; background:#fffdf7; color:#344132; padding:8px 10px; font:inherit}
+.popular-tabs {display:flex; align-items:center; gap:5px}
+.popular-tabs button {display:flex; align-items:center; gap:6px; padding:8px 12px; border:1px solid transparent; border-radius:7px; color:#555d50; font-size:13px}
+.popular-tabs button[aria-pressed=true] {background:#e9eee0; border-color:#d8e0cd; color:var(--popular-accent); font-weight:700}
+.popular-note {font-size:12px; line-height:1.55; color:#68695e; margin:8px 0 13px}
+.popular-rail {display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:clamp(9px,1.5vw,18px); list-style:none; margin:0; padding:0}
+.popular-rail li {min-width:0}
+.popular-card {display:flex; flex-direction:column; gap:6px; text-align:left; width:100%; padding:0 0 5px; min-width:0; color:#263329}
+.popular-art {position:relative; width:100%; border-radius:8px; overflow:hidden; background:#e9e6db}
+.popular-art .cover {aspect-ratio:2/3; width:100%; border-radius:0}
+.popular-card:hover .popular-art {box-shadow:0 0 0 2px #687958}
+.popular-card > strong, .popular-card > small {display:block; width:100%; text-overflow:ellipsis; overflow:hidden; white-space:nowrap}
+.popular-card > strong {font-size:13px}
+.popular-card > small {font-size:11px; color:#67685e}
+.popular-rank, .popular-score {position:absolute; top:6px; color:white; background:#223024e8; border-radius:4px; font-size:11px; line-height:1.1; padding:4px 5px; font-variant-numeric:tabular-nums}
+.popular-rank {left:6px}
+.popular-score {right:6px}
+.popular-empty {display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; color:#62665b; min-height:75px; font-size:13px}
+.popular-shelf :focus-visible {outline:2px solid var(--popular-accent); outline-offset:3px}
+@media(max-width:850px){
+ .popular-rail {display:grid; grid-auto-flow:column; grid-template-columns:none; grid-auto-columns:24%; overflow-x:auto; padding:4px 4px 8px; scroll-snap-type:x proximity}
+ .popular-rail>* {scroll-snap-align:start}
+}
+@media(max-width:530px){
+ .popular-rail {grid-auto-columns:40%}
+ .popular-source {align-items:flex-end; flex-direction:column; gap:4px}
+ .popular-shelf {margin-top:20px; margin-bottom:30px}
+}

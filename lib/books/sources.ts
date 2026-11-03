@@ -12,7 +12,19 @@ export async function upstream(url:string,body?:unknown){
 }
 function text(v:any):string{return typeof v==='string'?v:Array.isArray(v)?v.map(x=>x.v||'').join(' / '):'';}
 function aliasNames(names:unknown[]){return [...new Set(names.filter((name):name is string=>typeof name==='string'&&name.trim().length>0&&name.length<=100))].slice(0,24);}
-export function bangumiWork(s:any):Work{return {id:`bangumi:${s.id}`,source:'bangumi',sourceId:String(s.id),title:s.name_cn||s.name,originalTitle:s.name,aliases:aliasNames((s.infobox||[]).filter((x:any)=>/别名|別名/.test(x.key)).flatMap((x:any)=>Array.isArray(x.value)?x.value.map((v:any)=>v.v):[x.value])),kind:s.platform==='漫画'?'manga':'novel',cover:s.images?.common||s.images?.large||s.image||'',summary:s.summary||'暂无作品简介',author:text(s.infobox?.find((x:any)=>x.key==='作者')?.value)||'作者资料待补充',tags:(s.tags||[]).slice(0,5).map((x:any)=>x.name),score:s.rating?.score||undefined,votes:s.rating?.total||0,url:`https://bgm.tv/subject/${s.id}`,language:s.name_cn?'中文资料':'日文资料',readable:false,updated:s.date||undefined};}
+export function bangumiWork(s:any,category:Work['kind']='novel'):Work{
+ const kind=/漫画|漫畫/.test(s.platform||'')?'manga':/小说|小說|文库|文庫/.test(s.platform||'')?'novel':category;
+ const cover=safeUrl(s.images?.common)||safeUrl(s.images?.large)||safeUrl(s.image)||'';
+ const coverFallback=[s.images?.large,s.images?.medium,s.images?.small].map(safeUrl).find(url=>url&&url!==cover);
+ return {
+  id:`bangumi:${s.id}`,source:'bangumi',sourceId:String(s.id),title:s.name_cn||s.name,originalTitle:s.name,
+  aliases:aliasNames((s.infobox||[]).filter((x:any)=>/别名|別名/.test(x.key)).flatMap((x:any)=>Array.isArray(x.value)?x.value.map((v:any)=>v.v):[x.value])),
+  kind,cover,coverFallback,summary:s.summary||'暂无作品简介',
+  author:text(s.infobox?.find((x:any)=>x.key==='作者')?.value)||'作者资料待补充',
+  tags:(s.tags||[]).slice(0,5).map((x:any)=>x.name),score:s.rating?.score||undefined,votes:s.rating?.total||0,
+  url:`https://bgm.tv/subject/${s.id}`,language:s.name_cn?'中文资料':'日文资料',readable:false,updated:s.date||undefined,
+ };
+}
 export type MangaDexSource='mangadex'|'mangadex-en';
 export function isMangaDex(source:string):source is MangaDexSource{return source==='mangadex'||source==='mangadex-en';}
 export function mangaDexEnabled(source:MangaDexSource){
@@ -24,7 +36,16 @@ function mdCover(id:string,file:unknown,attributes:any){if(typeof file!=='string
 export async function mangaCoverUrl(id:string){if(!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id))throw new Error('作品 ID 无效');let h=mdCovers.get(id);if(!h||h.until<=Date.now()){const d=await jsonRequest(new URL(`https://api.mangadex.org/manga/${id}?includes[]=cover_art&includes[]=author`));if(d.data?.id!==id||d.data?.attributes?.contentRating!=='safe'||d.data?.attributes?.originalLanguage!=='ja')throw new Error('当前仅提供全年龄日漫');mangaWork(d.data);h=mdCovers.get(id);}if(!h)throw new Error('来源未提供有效封面');return h.url;}
 const localized=(v:any)=>v?.zh||v?.['zh-hk']||v?.ja||v?.en||Object.values(v||{})[0]||'';
 export function mangaWork(m:any,source:MangaDexSource='mangadex'):Work{const a=m.attributes;const cover=m.relationships?.find((x:any)=>x.type==='cover_art')?.attributes?.fileName;const cn=a.altTitles?.find((t:any)=>t.zh||t['zh-hk']);return {id:source+':'+m.id,source,sourceId:m.id,title:cn?localized(cn):localized(a.title),originalTitle:localized(a.title),aliases:aliasNames([Object.values(a.title||{}),...(a.altTitles||[]).map((t:any)=>Object.values(t))].flat()),kind:'manga',cover:mdCover(m.id,cover,a),summary:localized(a.description)||'暂无作品简介',author:m.relationships?.filter((r:any)=>r.type==='author').map((r:any)=>r.attributes?.name).filter(Boolean).join(' / ')||'作者资料待补充',tags:a.tags?.slice(0,5).map((t:any)=>localized(t.attributes.name))||[],url:`https://mangadex.org/title/${m.id}`,language:source==='mangadex-en'?'英文译文':'中文章节候选',readable:true,updated:a.updatedAt};}
-export async function searchBangumi(q:string,kind:string,page:number,sort:string,tag:string){const data=await upstream(`https://api.bgm.tv/v0/search/subjects?limit=18&offset=${(page-1)*18}`,{keyword:q,sort:sort==='score'?'score':q?'match':'heat',filter:{type:[1],tag:[kind==='manga'?'漫画':'轻小说',...(tag?[tag]:[])],nsfw:false}});return {items:(data.data||[]).filter((x:any)=>!x.nsfw&&x.type===1).map(bangumiWork),total:data.total||0};}
+export async function searchBangumi(q:string,kind:string,page:number,sort:string,tag:string){
+ const category=kind==='manga'?'manga':'novel';
+ const data=await upstream(`https://api.bgm.tv/v0/search/subjects?limit=18&offset=${(page-1)*18}`,{
+  keyword:q,sort:sort==='score'?'score':q?'match':'heat',
+  filter:{type:[1],tag:[category==='manga'?'漫画':'轻小说',...(tag?[tag]:[])],nsfw:false},
+ });
+ const items:Work[]=(data.data||[]).filter((entry:any)=>!entry.nsfw&&entry.type===1)
+  .map((entry:any)=>bangumiWork(entry,category)).filter((work:Work)=>work.kind===category);
+ return {items,total:data.total||0};
+}
 export async function searchManga(q:string,page:number,sort:string,source:MangaDexSource='mangadex'){
  const params=new URLSearchParams({limit:'18',offset:String((page-1)*18),'originalLanguage[]':'ja','contentRating[]':'safe'});
  for(const language of mangaLanguages(source))params.append('availableTranslatedLanguage[]',language);
@@ -77,15 +98,16 @@ export async function pages(id:string,source:MangaDexSource='mangadex',workId=''
  return {images:imageList(at.chapter.data,'data'),fallbackImages:imageList(at.chapter.dataSaver||[],'data-saver'),
   groups:mangaGroups(d.data.relationships),chapterUrl:`https://mangadex.org/chapter/${id}`};
 }
-export async function mangaPageImage(id:string,index:number,source:MangaDexSource='mangadex',workId=''){
+export async function mangaPageImage(id:string,index:number,source:MangaDexSource='mangadex',workId='',quality:'original'|'saver'='original'){
  const manifest=await pages(id,source,workId);
- const image=manifest.images[index];
- if(!image)throw new SourceError('not_found','来源未提供此页图片','请检查章节或切换阅读源。');
+ const original=manifest.images[index],compressed=manifest.fallbackImages?.[index];
+ if(!original)throw new SourceError('not_found','来源未提供此页图片','请检查章节或切换阅读源。');
+ const image=quality==='saver'&&compressed?compressed:original;
+ const fallback=image===original?compressed:original;
  try{return await requestImage(new URL(image));}
  catch(error){
   if(error instanceof SourceError&&['verification_required','login_required','access_denied','rate_limited'].includes(error.code))throw error;
-  const fallback=manifest.fallbackImages?.[index];
-  if(!fallback)throw error;
+  if(!fallback||fallback===image)throw error;
   return requestImage(new URL(fallback));
  }
 }

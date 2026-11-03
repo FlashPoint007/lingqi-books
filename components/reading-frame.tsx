@@ -5,7 +5,7 @@ import {ReadingSettings} from './reading-settings';
 import {readingPalette,readingPosition,type ReadingPosition,type ReadingPreferences} from '../lib/books/reading-preferences';
 
 export type DirectoryEntry={id:string;title:string;locked?:boolean;external?:boolean};
-type Props={title:string;chapterTitle:string;positionKey:string;initialPosition?:ReadingPosition;ready:boolean;manga:boolean;entries:DirectoryEntry[];activeId:string;directoryBusy?:boolean;directoryError?:string;onDirectoryRetry:()=>void;onSelect:(id:string)=>void;onPrevious:()=>void;onNext:()=>void;previousDisabled:boolean;nextDisabled:boolean;onExit:()=>void;onPosition:(position:ReadingPosition)=>void;preferences:ReadingPreferences;onPreferences:(preferences:ReadingPreferences)=>void;children:ReactNode;pageControls?:{index:number;count:number;onChange:(index:number)=>void};sourcePanel?:ReactNode;sourceBusy?:boolean;notice?:string;onSourceOpenChange?:(open:boolean)=>void};
+type Props={title:string;chapterTitle:string;positionKey:string;initialPosition?:ReadingPosition;ready:boolean;manga:boolean;mangaQuality?:boolean;entries:DirectoryEntry[];activeId:string;directoryBusy?:boolean;directoryError?:string;onDirectoryRetry:()=>void;onSelect:(id:string)=>void;onPrevious:()=>void;onNext:()=>void;previousDisabled:boolean;nextDisabled:boolean;onExit:()=>void;onPosition:(position:ReadingPosition)=>void;preferences:ReadingPreferences;onPreferences:(preferences:ReadingPreferences)=>void;children:ReactNode;pageControls?:{index:number;count:number;onChange:(index:number)=>void};sourcePanel?:ReactNode;sourceBusy?:boolean;notice?:string;onSourceOpenChange?:(open:boolean)=>void};
 
 function positionAt(el:HTMLDivElement,key:string):ReadingPosition{
  const top=el.getBoundingClientRect().top,anchors=Array.from(el.querySelectorAll<HTMLElement>('[data-reader-anchor]'));
@@ -55,7 +55,7 @@ export function ReadingFrame(p:Props){
   <dialog ref={settings} className="reading-panel settings-panel" aria-labelledby="reader-settings-title" onCancel={e=>e.stopPropagation()}>
    <header><h2 id="reader-settings-title"><BookOpen size={18}/>阅读设置</h2><button aria-label="关闭阅读设置" onClick={()=>settings.current?.close()}><X size={20}/></button></header>
    <p className="reading-panel-note">设置与进度保存在当前浏览器</p>
-   <ReadingSettings preferences={p.preferences} onChange={changePreferences} manga={p.manga}/>
+   <ReadingSettings preferences={p.preferences} onChange={changePreferences} manga={p.manga} mangaQuality={p.mangaQuality}/>
    <p className="reading-panel-note reading-shortcuts">{p.pageControls?'← → 翻页':'← → 翻章'} · 空格 / PageDown 向下阅读</p>
   </dialog>
  </dialog>;

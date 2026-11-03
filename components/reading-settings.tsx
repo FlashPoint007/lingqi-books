@@ -23,8 +23,8 @@ function ColorField({label, value, onChange}: {label: string; value: string; onC
   </div>;
 }
 
-export function ReadingSettings({preferences, onChange, manga}: {
-  preferences: ReadingPreferences; onChange: (preferences: ReadingPreferences) => void; manga: boolean;
+export function ReadingSettings({preferences, onChange, manga, mangaQuality}: {
+  preferences: ReadingPreferences; onChange: (preferences: ReadingPreferences) => void; manga: boolean; mangaQuality?: boolean;
 }) {
   const p = preferences;
   const palette = readingPalette(p);
@@ -41,10 +41,15 @@ export function ReadingSettings({preferences, onChange, manga}: {
       文字和背景颜色太接近。
       <button type="button" onClick={() => update({theme: 'custom', backgroundColor: palette.background, textColor: readableTextColor(palette.background)})}>自动调整文字颜色</button>
     </div>}
-    {manga ? <fieldset><legend>漫画阅读方式</legend><div className="setting-options">
+    {manga ? <><fieldset><legend>漫画阅读方式</legend><div className="setting-options">
       <button type="button" aria-pressed={p.layout === 'scroll'} onClick={() => update({layout: 'scroll'})}>条漫滚动</button>
       <button type="button" aria-pressed={p.layout === 'page'} onClick={() => update({layout: 'page'})}>逐页阅读</button>
-    </div></fieldset> : <>
+    </div></fieldset>
+    {mangaQuality&&<fieldset><legend>漫画图片画质</legend><div className="setting-options">
+      <button type="button" aria-pressed={p.imageQuality==='original'} onClick={()=>update({imageQuality:'original'})}>优先原图</button>
+      <button type="button" aria-pressed={p.imageQuality==='saver'} onClick={()=>update({imageQuality:'saver'})}>优先省流图</button>
+    </div><p className="reading-panel-note">MangaDex 两种画质可用时，优先尝试所选版本。</p></fieldset>}
+    </> : <>
       <label className="reading-font-select">字体形式<select aria-label="阅读字体" value={p.fontFamily}
         onChange={event => update({fontFamily: event.target.value as ReadingPreferences['fontFamily']})}>
         {Object.entries(READING_FONTS).map(([id, font]) => <option key={id} value={id}>{font.name}</option>)}

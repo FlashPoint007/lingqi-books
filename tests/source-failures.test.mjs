@@ -168,3 +168,16 @@ test('MangaDex English is opt-in and separate from the default Chinese catalog',
   }finally{globalThis.fetch=original;}
  }finally{if(env===undefined)delete process.env.PUBLIC_READING_SOURCES;else process.env.PUBLIC_READING_SOURCES=env;}
 });
+
+test('an unavailable edition does not hide a valid reading match on the same source',async()=>{
+ const {findReadingCandidates}=await import(path.join(dir,'reading-discovery.mjs'));
+ const metadata={kind:'novel',title:'星空邮局',originalTitle:'星空邮局',author:'样本作者'};
+ const candidates=['missing','available'].map(id=>({...metadata,id:'n8novel:'+id,sourceId:id,readable:true}));
+ const result=await findReadingCandidates(metadata,[{
+  id:'n8novel',search:async()=>({items:candidates}),
+  detail:async id=>{if(id==='missing')throw new Error('来源未找到此页面（404）');return candidates[1];},
+  chapters:async()=>({total:1,items:[{id:'public',title:'第一章'}]}),
+ }]);
+ assert.equal(result.statuses[0].ok,true);
+ assert.deepEqual(result.items.map(item=>item.work.sourceId),['available']);
+});
