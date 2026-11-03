@@ -1,3 +1,4 @@
+import type {Work} from '../../../lib/books/model';
 import {readingProbe} from '../../../lib/books/reading-probe';
 import {readingSources,findReadingCandidates} from '../../../lib/books/reading-discovery';
 import {PUBLIC_SOURCES,isPublicSource,publicSourceEnabled,publicSearch,publicWork,publicChapters,publicContent} from '../../../lib/books/public-reading';
@@ -16,11 +17,41 @@ export async function GET(req:Request){
  if(action==='bridge-status'){if(!bridgeConfigured())return Response.json({connected:false,sources:[],message:'尚未连接内容服务。受登录或特殊解析限制的来源，需要先配置兼容服务。'});try{return Response.json({connected:true,sources:await bridgeSources()});}catch{return Response.json({connected:false,sources:[],message:'内容服务连接失败'});}}
  if(action==='status'){const sources=[{id:'bangumi',name:'Bangumi',kind:'novel',state:'enabled',description:'作品资料与评分；详情中可搜索站内正文源'},{id:'mangadex',name:'MangaDex',kind:'manga',state:'enabled',description:'中文日漫目录与站内图片阅读，保留汉化组署名'},...Object.entries(PUBLIC_SOURCES).map(([id,v])=>({id,name:v.name,kind:v.kind,state:publicSourceEnabled(id as keyof typeof PUBLIC_SOURCES)?'enabled':id==='lnovel'?'blocked':'pending',description:!publicSourceEnabled(id as keyof typeof PUBLIC_SOURCES)&&id==='lnovel'?'图文适配已完成；生产节点要求人机验证，暂未启用':v.description})),...Object.entries(NOVEL_SOURCES).map(([id,v])=>({id,name:v.name,kind:'novel',state:novelBridgeSource(id)?'configured':'added',description:novelBridgeSource(id)?'已选择对应内容服务；搜索、目录与插图通过该服务读取':id==='wenku8'?'目录、GBK 正文与插图读取；源站人机验证可能阻止访问':id==='bilinovel'?'繁体网页图文源；含分页读取，混淆正文需兼容服务':id==='esj'?'网页作品与图文正文；匿名可见范围受来源限制':'目录与图文读取；部分作品需登录或访问权限'})),...(['suwayomi','maki'] as const).map(id=>({id,name:id==='maki'?'Maki 个人书库':'Suwayomi 漫画扩展',kind:'manga',state:serviceConfigured(id)?'configured':'pending',description:serviceConfigured(id)?'连接已配置，可检测目录和整章图片':id==='maki'?'已加入阅读适配，等待实例地址、密钥与作品允许列表':'已加入扩展搜索与图片适配，等待实例地址和扩展允许列表'})),{id:'bridge',name:'其他 LNReader 插件',kind:'novel',state:bridgeConfigured()?'configured':'pending',description:'可选可信插件宿主，现支持有序图文正文'}];return Response.json({sources:sources.map(s=>({...s,readingEnabled:readingSources(s.kind==='manga'?'manga':'novel').includes(s.id),observation:observed(s.id)}))});}
  if(action==='reading-candidates'){
- if(source!=='bangumi'||!/^\d{1,10}$/.test(id))return Response.json({error:'作品参数无效'},{status:400});
- const raw=await upstream(`https://api.bgm.tv/v0/subjects/${id}`);if(raw.nsfw||raw.type!==1)throw new Error('不支持的作品');const w=bangumiWork(raw);
- const readers=readingSources(w.kind).map(s=>({id:s,search:(query:string)=>search(s,query,1,w.kind,'popular',''),detail:isPublicSource(s)?(id:string)=>publicWork(s,id):undefined,chapters:async(work:string)=>{if(isPublicSource(s))return publicChapters(s,work,1);if(isNovelSource(s))return novelChapters(s,work,1);if(isReaderService(s))return serviceChapters(s,work,1);if(s==='mangadex')return chapters(work,1);return bridgeChapters(work,1);}}));
- return Response.json(await findReadingCandidates(w,readers),{headers:{'Cache-Control':'private, no-store'}});
+  const target=p.get('target')||'';
+  let work:Work|undefined;
+  if(source==='bangumi'){
+   if(!/^\d{1,10}$/.test(id))return Response.json({error:'作品参数无效'},{status:400});
+   const raw=await upstream('https://api.bgm.tv/v0/subjects/'+id);
+   if(raw.nsfw||raw.type!==1)throw new Error('不支持的作品');
+   work=bangumiWork(raw);
+  }else if(isPublicSource(source)&&publicSourceEnabled(source)){
+   work=await publicWork(source,id);
+  }else if(source==='mangadex'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)){
+   work=await mangaDetail(id);
+  }else if(isReaderService(source)&&serviceConfigured(source)){
+   work=await serviceWork(source,id);
+  }else if(source==='bridge'&&bridgeConfigured()){
+   const result=await bridgeSearch((p.get('lookup')||id).slice(0,100),1,kind);
+   work=result.items.find(item=>item.sourceId===id);
+  }
+  if(!work)return Response.json({error:'未能确认当前作品来源'},{status:400});
+  const media=work.kind,available=readingSources(media);
+  if(target&&!available.includes(target))return Response.json({error:'目标来源未启用或类型不匹配'},{status:400});
+  const readers=(target?[target]:available).map(provider=>({
+   id:provider,
+   search:(query:string)=>search(provider,query,1,media,'popular',''),
+   detail:isPublicSource(provider)?(id:string)=>publicWork(provider,id):provider==='mangadex'?mangaDetail:undefined,
+   chapters:(workId:string)=>{
+    if(isPublicSource(provider))return publicChapters(provider,workId,1);
+    if(isNovelSource(provider))return bridgeChapters(workId,1);
+    if(isReaderService(provider))return serviceChapters(provider,workId,1);
+    if(provider==='mangadex')return chapters(workId,1);
+    return bridgeChapters(workId,1);
+   },
+  }));
+  return Response.json(await findReadingCandidates(work,readers,q),{headers:{'Cache-Control':'private, no-store'}});
  }
+
  if(action==='search'||action==='test'){
  const names=['all','readable'].includes(source)?readingSources(kind):[source];
  if(names.some(n=>!['bangumi','mangadex','narou','bridge'].includes(n)&&!isNovelSource(n)&&!isReaderService(n)&&!isPublicSource(n)))return Response.json({error:'不支持的来源'},{status:400});

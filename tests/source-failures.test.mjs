@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','chinese','n8novel','komiic','source-errors','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery','reading-probe']){
+for(const name of ['model','chinese','n8novel','komiic','source-errors','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery','reading-probe','source-selection','reading-preferences']){
  let source=await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8');source=source.replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
 const route=(await readFile(new URL('../app/api/catalog/route.ts',import.meta.url),'utf8')).replace(/from '\.\.\/\.\.\/\.\.\/lib\/books\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,'catalog.mjs'),ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
@@ -95,4 +95,47 @@ test('metadata matching accepts a verified traditional alternative title and aut
  const metadata={id:'bangumi:990001',source:'bangumi',sourceId:'990001',title:'星空手记',originalTitle:'星の手記',author:'样本作者',kind:'novel',readable:false};
  const candidate={...metadata,id:'n8novel:990002',source:'n8novel',sourceId:'990002',title:'星空紀錄(星空手記)',originalTitle:'星空紀錄(星空手記)',author:'樣本作者',readable:true};
  const d=await discovery.findReadingCandidates(metadata,[{id:'n8novel',search:async()=>({items:[candidate]}),detail:async()=>candidate,chapters:async()=>({total:2,items:[{id:'990002~990003',locked:false}]})}]);assert.equal(d.items.length,1);assert.equal(d.items[0].work.sourceId,'990002');
+});
+
+test('switch candidates use alternate titles and reject cross-media targets',async()=>{
+ const {findReadingCandidates}=await import(path.join(dir,'reading-discovery.mjs'));
+ const origin={id:'mangadex:original',kind:'manga',title:'The New Gate',originalTitle:'The New Gate',aliases:['新世界之門'],readable:true};
+ const target={id:'dm5:other',source:'dm5',sourceId:'other',kind:'manga',title:'新世界之门',originalTitle:'新世界之门',readable:true};
+ const queries=[];
+ const found=await findReadingCandidates(origin,[{
+  id:'dm5',search:async query=>{queries.push(query);return {items:[target]};},
+  chapters:async()=>({items:[{id:'54',title:'第54话'}],total:1}),
+ }]);
+ assert.deepEqual(queries,['新世界之門']);
+ assert.equal(found.items[0].work.id,target.id);
+ const fetchBefore=globalThis.fetch;
+ globalThis.fetch=async()=>Response.json({id:210001,type:1,name:'検証小説',platform:'小说'});
+ try{
+  const response=await catalog.GET(new Request('https://site.example/api/catalog?action=reading-candidates&source=bangumi&id=210001&target=mangadex'));
+  assert.equal(response.status,400);
+ }finally{globalThis.fetch=fetchBefore;}
+});
+
+test('switching chapters uses explicit numbering and refuses ambiguous editions',async()=>{
+ const {correspondingChapter}=await import(path.join(dir,'source-selection.mjs'));
+ const target=[{title:'第53话'},{title:'第54話 门'},{title:'第55话'}];
+ assert.equal(correspondingChapter('Chapter 54',target,'manga'),1);
+ assert.equal(correspondingChapter('第54话 试阅',[...target,{title:'第54话 第二版'}],'manga'),-1);
+ assert.equal(correspondingChapter('第二卷 第三章',[{title:'第1卷 第3章'},{title:'第2卷 第3章 启程'}],'novel'),1);
+ assert.equal(correspondingChapter('第3章 开始',[{title:'第3章 新世界'}],'novel'),-1);
+ assert.equal(correspondingChapter('Chapter 54',[{title:'第54话',locked:true}],'manga'),-1);
+});
+
+test('saved reader appearance migrates old settings and validates custom colors',async()=>{
+ const {readingPreferences,readingPalette,readableTextColor}=await import(path.join(dir,'reading-preferences.mjs'));
+ const old=readingPreferences({theme:'green',fontFamily:'sans',fontSize:24,layout:'page'});
+ assert.equal(readingPalette(old).background,'#dce8d8');
+ assert.equal(old.fontSize,24);
+ assert.equal(old.layout,'page');
+ const custom=readingPreferences({theme:'custom',fontFamily:'kai',backgroundColor:'#1C211F',textColor:'invalid',fontSize:100});
+ assert.equal(custom.fontSize,36);
+ assert.equal(custom.fontFamily,'kai');
+ assert.equal(custom.backgroundColor,'#1c211f');
+ assert.equal(custom.textColor,'#464839');
+ assert.equal(readableTextColor(custom.backgroundColor),'#ffffff');
 });

@@ -3,6 +3,7 @@ import {bridgeConfigured,novelBridgeSource} from './bridge';
 import {serviceConfigured} from './reader-services';
 import {type Work,type Chapter} from './model';
 import {chineseKey,titleKeys} from './chinese';
+import {sourceFailure} from './source-errors';
 
 /** Discovery includes configured readers only; metadata and blocked adapters are
  * deliberately absent. Explicit source diagnostics remain available separately. */
@@ -17,29 +18,42 @@ type Reader={id:string;search:(query:string)=>Promise<{items:Work[]}>;detail?:(i
 function authorKey(author:string){return !author||/待补充|未知|未标注|unknown/i.test(author)?'':chineseKey(author);}
 /** Same-title matches are choices, never silent associations or body guarantees.
  * A catalog must contain an unlocked in-app chapter before a choice is offered. */
-export async function findReadingCandidates(metadata:Work,readers:Reader[]){
- const aliases=[...new Set([metadata.title,metadata.originalTitle].map(s=>s.trim()).filter(s=>s.length>0&&s.length<=100))];
- const names=new Set(aliases.flatMap(titleKeys));
- const results=await Promise.all(readers.map(async reader=>{
-  try{
-   const found=new Map<string,Work>();
-   for(const query of aliases.slice(0,2)){
-    const data=await reader.search(query);
-    for(const w of data.items)if(w.kind===metadata.kind&&w.readable&&[w.title,w.originalTitle].some(t=>titleKeys(t).some(key=>names.has(key))))found.set(w.id,w);
-    if(found.size)break;
+export async function findReadingCandidates(metadata:Work, readers:Reader[], manualQuery=''){
+ const names = [metadata.title, metadata.originalTitle, ...(metadata.aliases || [])];
+ const aliases = names.flatMap(name => {
+  const alternate = name.match(/[（(]([^（）()]+)[）)]/);
+  if (!alternate || !/[\p{Script=Han}]/u.test(alternate[1]) || /[卷巻册冊]|番外|外傳|外传|文庫版|文库版/.test(alternate[1])) return [name];
+  return [name, name.replace(alternate[0], ''), alternate[1]];
+ });
+ const sorted = [...aliases.filter(name => /[\p{Script=Han}]/u.test(name)), ...aliases.filter(name => !/[\p{Script=Han}]/u.test(name))];
+ const queries = [...new Set([manualQuery, ...sorted].map(name => name.trim()).filter(name => name && name.length <= 100))];
+ const titleSet = new Set(queries.flatMap(titleKeys));
+ const matchesTitle = (work:Work) => [work.title, work.originalTitle, ...(work.aliases || [])]
+  .some(name => titleKeys(name).some(key => titleSet.has(key)));
+ const results = await Promise.all(readers.map(async reader => {
+  try {
+   const matches = new Map<string,Work>();
+   for (const query of queries.slice(0, 3)) {
+    const data = await reader.search(query);
+    for (const work of data.items) {
+     if (work.kind === metadata.kind && work.readable && matchesTitle(work)) matches.set(work.id, work);
+    }
+    if (matches.size) break;
    }
-   const items:ReadingCandidate[]=[];
-   for(const result of [...found.values()].slice(0,3)){
-    const w=reader.detail?await reader.detail(result.sourceId):result;
-    // Original novels can share titles with unrelated works or fan fiction.
-    // Missing author data must not make such a work look like the original.
-    if(w.kind!==metadata.kind||!w.readable||![w.title,w.originalTitle].some(t=>titleKeys(t).some(key=>names.has(key))))continue;
-    if(metadata.kind==='novel'&&(!authorKey(metadata.author)||authorKey(metadata.author)!==authorKey(w.author)))continue;
-    const d=await reader.chapters(w.sourceId),first=d.items.find(c=>!c.locked&&!c.externalUrl);
-    if(first)items.push({work:w,chapterCount:d.total,firstChapter:first});
+   const items: ReadingCandidate[] = [];
+   for (const match of [...matches.values()].slice(0, 3)) {
+    const work = reader.detail ? await reader.detail(match.sourceId) : match;
+    if (work.kind !== metadata.kind || !work.readable || !matchesTitle(work)) continue;
+    // Keep same-title original novels by different authors separate.
+    if (metadata.kind === 'novel' && (!authorKey(metadata.author) || authorKey(metadata.author) !== authorKey(work.author))) continue;
+    const catalog = await reader.chapters(work.sourceId);
+    const firstChapter = catalog.items.find(chapter => !chapter.locked && !chapter.externalUrl);
+    if (firstChapter) items.push({work, chapterCount: catalog.total, firstChapter});
    }
-   return {items,status:{source:reader.id,ok:true,message:items.length?'已找到同名作品目录':'未找到同名可读目录'}};
-  }catch{return {items:[],status:{source:reader.id,ok:false,message:'此来源暂未能完成目录核验'}};}
+   return {items, status: {source: reader.id, ok: true, message: items.length ? '已找到同名作品目录' : '未找到同名可读目录'}};
+  } catch (error) {
+   return {items: [], status: {source: reader.id, ok: false, ...sourceFailure(error)}};
+  }
  }));
- return {items:results.flatMap(r=>r.items),statuses:results.map(r=>r.status),checkedSources:readers.map(r=>r.id)};
+ return {items: results.flatMap(result => result.items), statuses: results.map(result => result.status), checkedSources: readers.map(reader => reader.id)};
 }
