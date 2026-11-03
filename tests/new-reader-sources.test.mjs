@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','chinese','source-errors','network','kakuyomu','linovel','dm5','reading-preferences']){
+for(const name of ['model','chinese','source-errors','network','kakuyomu','linovel','dm5','reading-preferences','browser-library']){
  const source=(await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8')).replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
@@ -54,3 +54,33 @@ test('reading settings migrate old preferences and reject corrupted positions ac
 });
 
 test('DM5 search excludes unrelated recommendations and keeps the real exact result',()=>{const html='<input id="txtKeywords"><div class="banner_detail_form"><p class="title"><a href="/manhua-sample/">星空骑士</a></p></div><div class="mh-list"><div class="mh-item"><h2 class="title"><a href="/manhua-other/">无关漫画</a></h2></div></div>';assert.deepEqual(d.parseDmList(html,1,'星空').items.map(w=>w.sourceId),['sample']);assert.equal(d.parseDmList(html,1,'不存在').items.length,0);});
+
+test('independent shelf and progress writes preserve other works and old library data',async()=>{
+ const library=await import(path.join(dir,'browser-library.mjs'));
+ const legacy={id:'local:old',title:'旧书'},novel={id:'lnovelapi:sample',title:'小说'},manga={id:'mangadex-en:sample',title:'漫画'};
+ const legacyProgress={chapter:5,page:0,time:1,label:'旧章'};
+ const storage=new Map([
+  ['lq-shelf',JSON.stringify([legacy])],
+  ['lq-progress',JSON.stringify({[legacy.id]:legacyProgress})],
+ ]);
+ const old=Object.getOwnPropertyDescriptor(globalThis,'localStorage');
+ Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{
+  get length(){return storage.size;},key:index=>[...storage.keys()][index],
+  getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),
+ }});
+ try{
+  library.storeShelfItem(novel,false);
+  library.storeShelfItem(manga,false);
+  library.storeProgress(manga.id,{chapter:0,page:1,time:2,label:'Chapter 1'});
+  library.storeProgress(novel.id,{chapter:2,page:0,time:3,label:'第二章',novelChapterId:'sample~1~2'});
+  assert.equal(library.loadShelf().length,3);
+  assert.equal(library.loadProgress()[manga.id].page,1);
+  assert.equal(library.loadProgress()[novel.id].novelChapterId,'sample~1~2');
+  assert.deepEqual(library.loadProgress()[legacy.id],legacyProgress);
+  library.storeShelfItem(legacy,true);
+  assert.deepEqual(new Set(library.loadShelf().map(work=>work.id)),new Set([novel.id,manga.id]));
+ }finally{
+  if(old)Object.defineProperty(globalThis,'localStorage',old);
+  else delete globalThis.localStorage;
+ }
+});

@@ -11,13 +11,13 @@ import {NovelIllustration} from '../components/novel-illustration';
 import type {Work,Chapter,Catalog,ContentBlock} from '../lib/books/model';
 import {splitText} from '../lib/books/model';
 import type {ReadingCandidate} from '../lib/books/reading-discovery';
+import {loadShelf,loadProgress,libraryStorageKey,storeProgress,storeShelfItem,type Progress} from '../lib/books/browser-library';
 import {saveBook,getBook,type LocalBook} from '../lib/books/local';
 const sourceNames:Record<string,string>={bangumi:'Bangumi',mangadex:'MangaDex','mangadex-en':'MangaDex·英文日漫',lnovelapi:'lnovel·日轻中文译文',narou:'なろう',local:'本地书籍',bridge:'其他插件',wenku8:'轻小说文库',bilinovel:'哔哩轻小说·繁体',esj:'ESJ Zone',masiro:'真白萌',suwayomi:'Suwayomi',maki:'Maki',sfacg:'SF轻小说·中文原创',bh3:'崩坏3官方漫画',mangabz:'MangaBz 中文漫画',manhuagui:'漫画柜·中文日漫',lnovel:'轻小说百科·繁体日轻',n8novel:'无限轻小说·日轻繁中',komiic:'Komiic·繁中漫画',linovel:'轻之文库·中文原创',kakuyomu:'Kakuyomu·日文原文',dm5:'动漫屋·中文日漫'};
 const onlineSources=['mangadex','mangadex-en','lnovelapi','kakuyomu','linovel','dm5','n8novel','komiic','manhuagui','lnovel','mangabz','sfacg','bh3','bridge','wenku8','bilinovel','esj','masiro','suwayomi','maki'];
 const novelSources=['lnovelapi','kakuyomu','linovel','n8novel','lnovel','sfacg','wenku8','bilinovel','esj','masiro','bridge'];
 const genreLabels=['全部','奇幻','恋爱','校园','冒险','悬疑','日常','科幻'];
 const emptyCatalog:Catalog={items:[],total:0,statuses:[]};
-type Progress={chapter:number;page:number;label:string;time:number;mangaChapter?:Chapter;novelChapterId?:string;position?:ReadingPosition};
 function Cover(props:{work:Work;big?:boolean}){return <WorkCover key={props.work.cover} {...props}/>;}
 function WorkCover({work,big=false}:{work:Work;big?:boolean}){const [bad,setBad]=useState(false),[attempt,setAttempt]=useState(0);return <div className={'cover '+(big?'cover-big':'')}>{work.cover&&!bad?<img src={imageRetryUrl(work.cover,attempt)} alt={work.title+' 封面'} loading="lazy" referrerPolicy="no-referrer" onError={()=>setBad(true)}/>:<div className="paper-cover"><BookOpen size={30}/><strong>{work.title}</strong><small>{sourceNames[work.source]}</small>{big&&work.cover&&<button className="text-button" onClick={()=>{setBad(false);setAttempt(v=>v+1);}}><RotateCw size={14}/>重新加载封面</button>}</div>}</div>;}
 function MangaImage(props:{src:string;fallbackSrc?:string;index:number;eager?:boolean}){return <MangaPage key={props.src+'|'+(props.fallbackSrc||'')} {...props}/>;}
@@ -63,8 +63,30 @@ export default function Home(){
  const chapterCache=useRef(new Map<string,any>()),readingToken=useRef(0),openingAbort=useRef<AbortController|null>(null);const [openingWork,setOpeningWork]=useState('');
  const [onlineCredit,setOnlineCredit]=useState<{sourceUrl:string;attribution:string;rightsUrl:string;notice?:string}|null>(null),[bridgeState,setBridgeState]=useState<any>(null);
  const [sources,setSources]=useState<any[]>([]),[shelfFilter,setShelfFilter]=useState('all');const fileRef=useRef<HTMLInputElement>(null),modalRef=useRef<HTMLDialogElement>(null);const matchRequest=useRef(0);
- useEffect(()=>{try{const s=JSON.parse(localStorage.getItem('lq-shelf')||'[]'),p=JSON.parse(localStorage.getItem('lq-progress')||'{}');if(Array.isArray(s))setShelf(s.filter(w=>w&&typeof w.id==='string'&&typeof w.title==='string'));if(p&&typeof p==='object')setProgress(p);const prefs=JSON.parse(localStorage.getItem('lq-reader-prefs')||'{}');setReaderPreferences(readingPreferences(prefs));setSourcePreferences(preferredSources(JSON.parse(localStorage.getItem('lq-reading-sources')||'{}')));}catch{}setReady(true);},[]);
- useEffect(()=>{if(ready)try{localStorage.setItem('lq-shelf',JSON.stringify(shelf));localStorage.setItem('lq-progress',JSON.stringify(progress));}catch{setToast('浏览器存储空间不足，书架暂时无法保存');}},[shelf,progress,ready]);
+ useEffect(()=>{
+  function reloadLibrary(kind:'shelf'|'progress'|'both'){
+   try{
+    if(kind!=='progress')setShelf(loadShelf());
+    if(kind!=='shelf'){
+     const saved=loadProgress();
+     progressRef.current=saved;
+     setProgress(saved);
+    }
+   }catch{}
+  }
+  reloadLibrary('both');
+  try{
+   setReaderPreferences(readingPreferences(JSON.parse(localStorage.getItem('lq-reader-prefs')||'{}')));
+   setSourcePreferences(preferredSources(JSON.parse(localStorage.getItem('lq-reading-sources')||'{}')));
+  }catch{}
+  function syncLibrary(event:StorageEvent){
+   const kind=libraryStorageKey(event.key);
+   if(kind&&event.storageArea===localStorage)reloadLibrary(kind);
+  }
+  window.addEventListener('storage',syncLibrary);
+  setReady(true);
+  return()=>window.removeEventListener('storage',syncLibrary);
+ },[]);
  useEffect(()=>{if(ready)try{localStorage.setItem('lq-reader-prefs',JSON.stringify(readerPreferences));}catch{}},[ready,readerPreferences]);
  useEffect(()=>{if(ready)try{localStorage.setItem('lq-reading-sources',JSON.stringify(sourcePreferences));}catch{}},[ready,sourcePreferences]);
  useEffect(()=>{if(!toast)return;const t=setTimeout(()=>setToast(''),3500);return()=>clearTimeout(t);},[toast]);
@@ -79,7 +101,11 @@ export default function Home(){
  useEffect(()=>{if(!reader)return;document.body.style.overflow='hidden';return()=>{document.body.style.overflow='';};},[reader]);
  const remoteNovelChapter=reader?.online?(reader.local?.chapters[localChapter] as {remoteId?:string}|undefined)?.remoteId:undefined;
  const readerReady=!!reader&&(reader.online?!reading&&!readerError&&onlineChapterId===remoteNovelChapter:reader.local?true:!reading&&!readerError&&imagesChapterId===reader.chapter?.id);
- useEffect(()=>{if(readerReady&&reader){const w=reader.work;setProgress(p=>({...p,[w.id]:{chapter:reader.local?localChapter:0,page:imagePage,label:reader.local?reader.local.chapters[localChapter]?.title:reader.chapter!.title,time:Date.now(),mangaChapter:reader.chapter,novelChapterId:remoteNovelChapter,position:p[w.id]?.position?.key===readerPositionKey?p[w.id].position:undefined}}));}},[reader,readerReady,localChapter,imagePage,readerPositionKey,remoteNovelChapter]);
+ useEffect(()=>{
+  if(!readerReady||!reader)return;
+  const position=progressRef.current[reader.work.id]?.position;
+  recordProgress(position?.key===readerPositionKey?position:undefined);
+ },[reader,readerReady,localChapter,imagePage,readerPositionKey,remoteNovelChapter]);
  useEffect(()=>{
   if(!reader?.chapter)return;
   const work=reader.work,controller=new AbortController();
@@ -91,7 +117,32 @@ export default function Home(){
   });
   return()=>controller.abort();
  },[reader?.work.id,!!reader?.chapter,refresh]);
- function savePosition(position:ReadingPosition){if(!reader||position.key!==readerPositionKey)return;const w=reader.work,next={...progressRef.current,[w.id]:{chapter:reader.local?localChapter:0,page:imagePage,label:reader.local?reader.local.chapters[localChapter]?.title:reader.chapter!.title,time:Date.now(),mangaChapter:reader.chapter,novelChapterId:remoteNovelChapter,position}};progressRef.current=next;try{localStorage.setItem('lq-progress',JSON.stringify(next));}catch{}setProgress(next);}
+ function recordProgress(position?:ReadingPosition){
+  if(!reader)return;
+  const id=reader.work.id;
+  const entry:Progress={
+   chapter:reader.local?localChapter:0,page:imagePage,label:reader.local?reader.local.chapters[localChapter]?.title:reader.chapter!.title,
+   time:Date.now(),mangaChapter:reader.chapter,novelChapterId:remoteNovelChapter,position,
+  };
+  const next={...progressRef.current,[id]:entry};
+  progressRef.current=next;
+  try{storeProgress(id,entry);}catch{}
+  setProgress(next);
+ }
+ function savePosition(position:ReadingPosition){
+  if(position.key===readerPositionKey)recordProgress(position);
+ }
+ function updateShelf(work:Work,toggle=false){
+  let current=shelf;
+  try{current=loadShelf();}catch{}
+  const exists=current.some(entry=>entry.id===work.id),remove=toggle&&exists;
+  if(remove||!exists){
+   try{storeShelfItem(work,remove);}catch{setToast('浏览器存储空间不足，书架暂时无法保存');}
+  }
+  setShelf(remove?current.filter(entry=>entry.id!==work.id):exists?current:[work,...current]);
+  return remove;
+ }
+
 
  function chooseKind(k:'novel'|'manga'){setKind(k);setSource('readable');setPage(1);setGenre('全部');setView('discover');}
  function closeDetail(){cancelOpening();setDetail(null);}
@@ -126,8 +177,8 @@ export default function Home(){
   openDetail(target,anchor,false);
   setSourceSwitchNotice('已切换到所选阅读源，之后打开本作品时会优先使用。');
  }
- function add(w:Work){setShelf(s=>s.some(x=>x.id===w.id)?s.filter(x=>x.id!==w.id):[w,...s]);setToast(shelf.some(x=>x.id===w.id)?'已移出书架':'已加入书架');}
- async function importText(file?:File){if(!file)return;if(file.size>15*1024*1024){setToast('请选择 15 MB 以内的 TXT 文件');return;}try{const buf=await file.arrayBuffer();let text=new TextDecoder('utf-8').decode(buf);if(text.includes('\uFFFD'))text=new TextDecoder('gb18030').decode(buf);if(!text.trim())throw new Error('文件内容为空');const id=crypto.randomUUID(),title=file.name.replace(/\.txt$/i,'');const book={id,title,chapters:splitText(text)};await saveBook(book);const w:Work={id:'local:'+id,source:'local',sourceId:id,title,originalTitle:title,kind:'novel',cover:'',summary:`本地导入 · ${book.chapters.length} 个章节 · 文件仅保存在此浏览器`,author:'本地书籍',tags:['TXT'],url:'',language:'本地文本',readable:true};setShelf(s=>[w,...s]);setView('shelf');setToast('导入成功，点击书籍开始阅读');}catch(e){setToast(e instanceof Error?e.message:'导入失败');}if(fileRef.current)fileRef.current.value='';}
+ function add(w:Work){setToast(updateShelf(w,true)?'已移出书架':'已加入书架');}
+ async function importText(file?:File){if(!file)return;if(file.size>15*1024*1024){setToast('请选择 15 MB 以内的 TXT 文件');return;}try{const buf=await file.arrayBuffer();let text=new TextDecoder('utf-8').decode(buf);if(text.includes('\uFFFD'))text=new TextDecoder('gb18030').decode(buf);if(!text.trim())throw new Error('文件内容为空');const id=crypto.randomUUID(),title=file.name.replace(/\.txt$/i,'');const book={id,title,chapters:splitText(text)};await saveBook(book);const w:Work={id:'local:'+id,source:'local',sourceId:id,title,originalTitle:title,kind:'novel',cover:'',summary:`本地导入 · ${book.chapters.length} 个章节 · 文件仅保存在此浏览器`,author:'本地书籍',tags:['TXT'],url:'',language:'本地文本',readable:true};updateShelf(w);setView('shelf');setToast('导入成功，点击书籍开始阅读');}catch(e){setToast(e instanceof Error?e.message:'导入失败');}if(fileRef.current)fileRef.current.value='';}
  function resume(original:Work){const w=selectedWork(original);if(novelSources.includes(w.source)&&w.kind==='novel')void readOnline(w);else if(w.source==='local')void readLocal(w);else if(progress[w.id]?.mangaChapter)readManga(w,progress[w.id].mangaChapter!);else openDetail(w,original,false);}
  async function readLocal(w:Work){cancelOpening();const token=++readingToken.current;try{const b=await getBook(w.sourceId);if(token!==readingToken.current)return;if(!b)throw new Error('本地文件不存在，请重新导入');setDetail(null);setLocalChapter(Math.min(progress[w.id]?.chapter||0,b.chapters.length-1));setImagePage(0);setReader({work:w,local:b});}catch(e){setToast(e instanceof Error?e.message:'读取失败');}}
  async function loadWorkDirectory(work:Work,signal:AbortSignal){
@@ -180,7 +231,7 @@ export default function Home(){
     const locked=!!(chapter.locked||chapter.externalUrl);
     return {title:chapter.title+(locked?' · 暂不可读':''),text:'',remoteId:chapter.id,locked};
    })}});
-   setShelf(s=>s.some(x=>x.id===w.id)?s:[w,...s]);
+   updateShelf(w);
   }catch(error){
    if(token===readingToken.current&&!c.signal.aborted)setToast(error instanceof Error?error.message:'在线目录读取失败');
   }finally{
@@ -246,7 +297,7 @@ export default function Home(){
  }
  function cancelOpening(){readingToken.current++;openingAbort.current?.abort();openingAbort.current=null;setOpeningWork('');}
 
- function readManga(w:Work,c:Chapter){cancelOpening();if(c.locked){setToast('章节需要来源阅读权限');return;}if(c.externalUrl){setToast('此章节没有站内图片，请选择其他章节');return;}setReaderSourceOpen(false);setDetail(null);setImagePage(progress[w.id]?.mangaChapter?.id===c.id?progress[w.id].page:0);setReader({work:w,chapter:c});setShelf(s=>s.some(x=>x.id===w.id)?s:[w,...s]);}
+ function readManga(w:Work,c:Chapter){cancelOpening();if(c.locked){setToast('章节需要来源阅读权限');return;}if(c.externalUrl){setToast('此章节没有站内图片，请选择其他章节');return;}setReaderSourceOpen(false);setDetail(null);setImagePage(progress[w.id]?.mangaChapter?.id===c.id?progress[w.id].page:0);setReader({work:w,chapter:c});updateShelf(w);}
  function browseReadable(k:'novel'|'manga'){closeDetail();setKind(k);setSource('readable');setSearch('');setQuery('');setPage(1);setView('discover');}
  function startDetail(){if(!detail)return;if(detail.source==='local'){void readLocal(detail);return;}if(!detail.readable){modalRef.current?.querySelector('.reading-source-picker')?.scrollIntoView({behavior:'smooth',block:'start'});return;}const first=chapters.findIndex(c=>!c.locked&&!c.externalUrl);if(first<0)return;if(detail.kind==='novel'){void readOnline(detail,progress[detail.id]?undefined:chapters[first].id);return;}const saved=progress[detail.id]?.mangaChapter;readManga(detail,saved&&!saved.locked&&!saved.externalUrl?saved:chapters[first]);}
  async function testSource(id:string,k:string){setTestingSource(id);try{const d=await api({action:['n8novel','komiic','kakuyomu','linovel','dm5','lnovelapi','mangadex-en'].includes(id)?'verify-reading':'test',source:id,kind:k,page:1});const status=d.statuses?.[0];setToast(status?.ok?status.message||`连接正常，读取到 ${d.items.length} 部作品`:status?.message||'检测失败');const observation={ok:!!status?.ok,message:status?.message||'检测未返回结果',hint:status?.hint,retryable:status?.retryable,checkedAt:new Date().toISOString()};sourceTests.current[id]=observation;setSources(current=>current.map(s=>s.id===id?{...s,observation}:s));}catch(e){const message=e instanceof Error?e.message:'检测失败';setToast(message);const observation={ok:false,message,checkedAt:new Date().toISOString()};sourceTests.current[id]=observation;setSources(current=>current.map(s=>s.id===id?{...s,observation}:s));}finally{setTestingSource('');}}
