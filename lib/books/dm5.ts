@@ -7,7 +7,10 @@ import type {Work,Chapter,ReadingContent} from './model';
 const BASE='https://www.dm5.com';
 // Nodes observed in the public catalog and the verified chapter manifest.
 const COVER_NODES=Array.from({length:9},(_,i)=>`https://mhfm${i+1}us.cdndm5.com`);
-const PAGE_NODES=['https://manhua1036zjcdn26.cdndm5.com'];
+const PAGE_NODES=[
+ 'https://manhua1034zjcdn26.cdndm5.com',
+ 'https://manhua1036zjcdn26.cdndm5.com',
+];
 function slug(id:string){if(!/^[a-z0-9][a-z0-9-]{0,180}$/.test(id))throw new Error('漫画作品 ID 无效');return id;}
 function numeric(id:string){if(!/^\d{1,12}$/.test(id))throw new Error('漫画章节 ID 无效');return id;}
 function imagePath(workId:string,id?:string,index?:number){return '/api/reader-image?'+new URLSearchParams({source:'dm5',workId,...(id?{id,index:String(index)}:{kind:'cover'})});}

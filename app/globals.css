@@ -92,7 +92,7 @@ dialog.reading-dialog:not([open]){display:none}.reading-dialog::backdrop{backgro
 }
 .source-choice-main small {grid-column: 1 / -1}
 .source-choice-status {font-size: 10px; color: var(--choice-muted); white-space: nowrap}
-.source-choice.is-current .source-choice-status, .source-choice.found .source-choice-status {color: var(--choice-accent)}
+.source-choice.is-current .source-choice-status, .source-choice.source-choice-found .source-choice-status {color: var(--choice-accent)}
 .source-choice-credit {margin: -4px 10px 9px}
 .source-choice-versions button {
   display: grid;

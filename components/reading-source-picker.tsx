@@ -111,7 +111,7 @@ export function ReadingSourcePicker(props: Props) {
       if (onlyFound && !selected && check.state !== 'found') return null;
       const single = check.items.length === 1 ? check.items[0] : undefined;
       const select = () => single ? props.onSelect(single) : setExpanded(old => old === provider.id ? '' : provider.id);
-      return <article key={provider.id} className={'source-choice ' + (selected ? 'is-current' : check.state)}>
+      return <article key={provider.id} className={'source-choice ' + (selected ? 'is-current' : 'source-choice-' + check.state)}>
         <button type="button" className="source-choice-main" aria-pressed={selected}
           aria-label={selected ? provider.name + '，当前阅读源' : '选择 ' + provider.name + ' 作为阅读源'}
           disabled={busy || selected || check.state !== 'found'} onClick={select}>

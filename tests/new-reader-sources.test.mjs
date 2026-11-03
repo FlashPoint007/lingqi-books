@@ -42,6 +42,8 @@ test('DM5 orders chapter groups for reading and stops at explicit source restric
 test('DM5 data decoding cannot execute JavaScript or expand to an arbitrary image origin',()=>{
  const packed=root=>"}('"+`var cid=9902;var pix="${root}";var key="abcdef0123456789";var pvalue=["/one.jpg"];`+"',25,0,''.split('|'))";
  assert.equal(d.parseDmPage(packed('https://manhua1036zjcdn26.cdndm5.com/9/9901/9902'),'9901','9902','9').pathname,'/9/9901/9902/one.jpg');
+ assert.equal(d.parseDmPage(packed('https://manhua1034zjcdn26.cdndm5.com/9/9901/9902'),'9901','9902','9').origin,'https://manhua1034zjcdn26.cdndm5.com');
+ assert.throws(()=>d.parseDmPage(packed('https://manhua1034zjcdn26.cdndm5.com/9/9901/9903'),'9901','9902','9'),/核准/);
  assert.throws(()=>d.parseDmPage(packed('https://evil.test/9/9901/9902'),'9901','9902','9'),/核准/);assert.throws(()=>d.parseDmPage(packed('https://manhua1036zjcdn26.cdndm5.com/9/9999/9902'),'9901','9902','9'),/核准/);
  globalThis.dmExecuted=false;assert.throws(()=>d.parseDmPage('globalThis.dmExecuted=true','9901','9902','9'));assert.equal(globalThis.dmExecuted,false);delete globalThis.dmExecuted;
 });
