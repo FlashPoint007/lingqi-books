@@ -93,8 +93,8 @@ export function ReadingSourcePicker(props: Props) {
   return <section className="reading-source-picker" aria-label="选择阅读源">
     <div className="source-picker-heading">
       <h3><Layers size={17}/>选择阅读源</h3>
-      <button type="button" disabled={busy || !!pending} aria-label="重新检测阅读源" onClick={() => {refresh.current = true; setRevision(value => value + 1);}}>
-        <RefreshCw size={14} className={pending ? 'reading-spinner' : ''}/>{pending ? '检测中 ' + pending : '重新检测'}
+      <button type="button" disabled={busy || active === false || !!pending} aria-label="重新检测阅读源" onClick={() => {refresh.current = true; setRevision(value => value + 1);}}>
+        <RefreshCw size={14} className={pending && active !== false ? 'reading-spinner' : ''}/>{active === false ? '等待当前目录' : pending ? '检测中 ' + pending : '重新检测'}
       </button>
     </div>
     <p className="source-picker-note">各源章节和译名可能不同，选择前可以核对作者与版本。</p>
@@ -104,7 +104,7 @@ export function ReadingSourcePicker(props: Props) {
       <button type="button" aria-pressed={!onlyFound} onClick={() => setOnlyFound(false)}>全部 {enabled.length}</button>
       <button type="button" aria-pressed={onlyFound} onClick={() => setOnlyFound(true)}>有目录 {found}</button>
     </div>
-    {!enabled.length && <p role="status">正在读取已启用的来源…</p>}
+    {!enabled.length && <p role="status">{providers.length ? '暂无已启用的同类阅读源' : '正在读取已启用的来源…'}</p>}
     <div className="source-picker-grid">{enabled.map(provider => {
       const selected = provider.id === current.source;
       const check = checks[provider.id] || queued;

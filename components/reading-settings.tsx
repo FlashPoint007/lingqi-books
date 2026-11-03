@@ -52,7 +52,7 @@ export function ReadingSettings({preferences, onChange, manga}: {
       <p className="reading-panel-note">优先使用设备上已有的字体。</p>
       <label className="reading-range">字号 <output>{p.fontSize} px</output><input aria-label="正文字号" type="range" min={14} max={36} step={1} value={p.fontSize} onChange={event => update({fontSize: Number(event.target.value)})}/></label>
       <label className="reading-range">行距 <output>{p.lineHeight.toFixed(1)} 倍</output><input aria-label="正文行距" type="range" min={1.6} max={2.6} step={0.1} value={p.lineHeight} onChange={event => update({lineHeight: Number(event.target.value)})}/></label>
-      <label className="reading-range">段落间距 <output>{p.paragraphSpacing.toFixed(1)} 倍</output><input aria-label="段落间距" type="range" min={0.4} max={2} step={0.05} value={p.paragraphSpacing} onChange={event => update({paragraphSpacing: Number(event.target.value)})}/></label>
+      <label className="reading-range">段落间距 <output>{p.paragraphSpacing.toFixed(2)} 倍</output><input aria-label="段落间距" type="range" min={0.4} max={2} step={0.05} value={p.paragraphSpacing} onChange={event => update({paragraphSpacing: Number(event.target.value)})}/></label>
       <label className="reading-indent"><input type="checkbox" checked={p.indent} onChange={event => update({indent: event.target.checked})}/>首行缩进两个字</label>
       <fieldset><legend>正文宽度</legend><div className="setting-options">{([[640,'紧凑'], [780,'舒适'], [960,'宽屏']] as const).map(([width, label]) =>
         <button type="button" key={width} aria-pressed={p.width === width} onClick={() => update({width})}>{label}</button>,
