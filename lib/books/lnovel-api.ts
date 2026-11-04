@@ -9,11 +9,13 @@ const BASE='https://lnovel.animes.garden';
 const ID=z.union([z.string(),z.number()]).transform(String).pipe(z.string().regex(/^\d{1,12}$/));
 const text=z.string().max(10000).nullish();
 const volume=z.object({nid:ID,vid:ID,title:z.string().min(1).max(300)});
-const book=z.object({
+const bookEntry=z.object({
  nid:ID,name:z.string().min(1).max(300),authors:z.array(z.object({name:z.string().max(200),position:z.string()})).max(30),
  cover:text,description:text,labels:z.array(z.string().max(100)).max(30),updatedAt:text,
- isDeleted:z.boolean().optional(),volumes:z.array(volume).max(40),
+ isDeleted:z.boolean().optional(),
 });
+const book=bookEntry.extend({volumes:z.array(volume).max(40)});
+const bookIndex=z.array(bookEntry).max(5000);
 const directory=z.object({
  nid:ID,vid:ID,isDeleted:z.boolean().optional(),
  chapters:z.array(z.object({nid:ID,vid:ID,cid:ID,title:z.string().min(1).max(300)})).max(400),
@@ -41,12 +43,14 @@ function imageUrl(raw:string|null|undefined,nid:string,cid?:string){
  if(!raw)return;
  let u:URL;
  try{u=new URL(raw,BASE);}catch{return;}
- if(u.origin!==BASE||u.username||u.password||u.hash)return;
+ if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.hash)return;
  const file='[\\w.-]+\\.(?:jpe?g|png|webp|gif|avif)';
  const path=cid
   ?new RegExp('^/bili/img\\d+/\\d+/'+nid+'/'+cid+'/'+file+'$','i')
   :new RegExp('^/bili/(?:files/article/image/\\d+/'+nid+'/'+nid+'[a-z]?\\.(?:jpe?g|png|webp)|img\\d+/cover/'+nid+'/'+file+')$','i');
- if(path.test(u.pathname))return u.href;
+ // The API sometimes serializes its internal host. Treat the scoped resource
+ // path as the identifier; every image request still goes to our fixed origin.
+ if(path.test(u.pathname))return new URL(u.pathname+u.search,BASE).href;
 }
 function toWork(id:string,title:string,author:string,summary:string,cover:string|undefined,tags:string[],updated?:string):Work{
  return {
@@ -71,6 +75,24 @@ async function volumeChapters(nid:string,vid:string){
 }
 export async function lnovelApiSearch(q:string,page:number){
  if(/^\d{1,12}$/.test(q))return {items:page===1?[(await novel(q)).work]:[],total:1,hasMore:false};
+ let indexUnavailable=false;
+ if(q){
+  try{
+   const entries=await cached('lnovelapi:search-index',async()=>{
+    const data=await load('novels',bookIndex);
+    return data.filter(entry=>!entry.isDeleted&&!restricted.test(entry.name+' '+entry.labels.join(' '))).map(entry=>{
+     const work=toWork(entry.nid,entry.name,entry.authors.filter(a=>a.position==='author').map(a=>a.name).join(' / '),
+      entry.description||'',imageUrl(entry.cover,entry.nid),['日轻译文',...entry.labels].slice(0,8),entry.updatedAt||undefined);
+     return {work,title:chineseKey(work.title),author:chineseKey(work.author)};
+    });
+   },300000);
+   const query=chineseKey(q);
+   const score=(entry:typeof entries[number])=>entry.title===query?0:entry.title.startsWith(query)?1:entry.title.includes(query)?2:3;
+   const items=query?entries.filter(entry=>entry.title.includes(query)||entry.author.includes(query))
+    .sort((a,b)=>score(a)-score(b)).map(entry=>entry.work):[];
+   return {items:items.slice((page-1)*18,page*18),total:items.length,hasMore:page*18<items.length};
+  }catch{indexUnavailable=true;}
+ }
  const rankings=q?['weekvisit','monthvisit']:['weekvisit'];
  const responses=await Promise.allSettled(rankings.map(name=>load('top/'+name,rank)));
  const items=new Map<string,Work>(),query=chineseKey(q);
@@ -85,7 +107,7 @@ export async function lnovelApiSearch(q:string,page:number){
  }
  if(responses.every(r=>r.status==='rejected'))throw responses[0].reason;
  const all=[...items.values()];
- return {items:all.slice((page-1)*18,page*18),total:all.length,hasMore:page*18<all.length,partial:responses.some(r=>r.status==='rejected')};
+ return {items:all.slice((page-1)*18,page*18),total:all.length,hasMore:page*18<all.length,partial:indexUnavailable||responses.some(r=>r.status==='rejected')};
 }
 export async function lnovelApiWork(id:string){return (await novel(id)).work;}
 export async function lnovelApiChapters(id:string,page:number){
@@ -118,7 +140,10 @@ async function rawContent(id:string,workId:string):Promise<ReadingContent>{
   const result=await load('novel/'+nid+'/chapter/'+cid,chapterBody);
   if(result.nid!==nid||result.vid!==vid||result.cid!==cid)throw new Error('正文与目录不匹配');
   const images=new Set(result.images.flatMap(image=>{const url=imageUrl(image.src,nid,cid);return url?[url]:[];}));
-  const blocks=richText(result.content,BASE,u=>images.has(u.href)) as ContentBlock[];
+  const blocks=(richText(result.content,BASE,u=>{
+   const canonical=imageUrl(u.href,nid,cid);
+   return !!canonical&&images.has(canonical);
+  }) as ContentBlock[]).map(block=>block.type==='image'?{...block,url:imageUrl(block.url,nid,cid)!}:block);
   if(!blocks.length)throw new SourceError('invalid_response','来源没有返回可读图文','可以切换到其他阅读源。');
   return {blocks,text:blocks.flatMap(b=>b.type==='text'?[b.text]:[]).join('\n\n'),
    images:blocks.flatMap(b=>b.type==='image'?[b.url]:[]),

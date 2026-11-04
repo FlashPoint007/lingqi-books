@@ -76,8 +76,8 @@ test('production-blocked novel reader reports the verification reason and is not
 test('lnovel API binds volumes, chapters and in-order illustrations to the selected work',async()=>{
  const lnovel=await import(path.join(dir,'lnovel-api.mjs'));
  const origin='https://lnovel.animes.garden';
- const cover=origin+'/bili/files/article/image/9/910040/910040s.jpg';
- const illustration=origin+'/bili/img3/9/910040/910042/page.jpg';
+ const cover='http://[2001:db8::1]/bili/files/article/image/9/910040/910040s.jpg';
+ const illustration='http://[2001:db8::1]/bili/img3/9/910040/910042/page.jpg';
  const other=origin+'/bili/img3/9/910041/910042/page.jpg';
  const paths=[];
  const oldFetch=globalThis.fetch;
@@ -92,7 +92,7 @@ test('lnovel API binds volumes, chapters and in-order illustrations to the selec
     content:`<p>一封信。</p><img src="${illustration}"><script>shouldNotRun()</script><img src="${other}"><p>送达。</p>`},
   }[url.pathname];
   if(data)return Response.json({ok:true,provider:'bilinovel',data});
-  assert.equal(url.href,illustration);
+  assert.ok([origin+new URL(illustration).pathname,origin+new URL(cover).pathname].includes(url.href));
   return new Response(Uint8Array.from([255,216,255,0]),{headers:{'content-type':'image/jpeg'}});
  };
  try{
@@ -105,5 +105,55 @@ test('lnovel API binds volumes, chapters and in-order illustrations to the selec
   assert.equal(body.text,'一封信。\n\n送达。');
   const result=await lnovel.lnovelApiImage(new URLSearchParams({workId:'910040',id:catalog.items[0].id,index:'0'}));
   assert.equal(result.headers.get('content-type'),'image/jpeg');
+  const image=await lnovel.lnovelApiImage(new URLSearchParams({workId:'910040',kind:'cover'}));
+  assert.equal(image.headers.get('content-type'),'image/jpeg');
+  await assert.rejects(lnovel.lnovelApiImage(new URLSearchParams({workId:'910040',id:catalog.items[0].id,index:'1'})));
  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('lnovel search keeps usable rankings and reports partial coverage when the public index fails',async()=>{
+ const lnovel=await import(path.join(dir,'lnovel-api.mjs'));
+ const original=globalThis.fetch;
+ globalThis.fetch=async input=>{
+  const url=new URL(input);
+  assert.equal(url.origin,'https://lnovel.animes.garden');
+  if(url.pathname==='/api/bili/novels')return new Response('Unavailable',{status:503});
+  assert.match(url.pathname,/^\/api\/bili\/top\/(?:weekvisit|monthvisit)$/);
+  return Response.json({ok:true,provider:'bilinovel',data:{items:[{nid:910050,title:'榜单测试故事',author:'样本作者'}]}});
+ };
+ try{
+  const data=await lnovel.lnovelApiSearch('榜单测试',1);
+  assert.equal(data.items[0].sourceId,'910050');
+  assert.equal(data.partial,true);
+ }finally{globalThis.fetch=original;}
+});
+
+test('lnovel searches beyond the charts with Chinese normalization, exact titles first and bounded pagination',async()=>{
+ const lnovel=await import(path.join(dir,'lnovel-api.mjs'));
+ const original=globalThis.fetch;
+ const entry=(nid,name,extra={})=>({nid,name,authors:[{name:'測試作者',position:'author'},{name:'插画者',position:'illustrator'}],
+  description:'原创测试简介',labels:['日本轻小说'],isDeleted:false,...extra});
+ let calls=0;
+ globalThis.fetch=async input=>{
+  const url=new URL(input);calls++;
+  assert.equal(url.href,'https://lnovel.animes.garden/api/bili/novels');
+  return Response.json({ok:true,provider:'bilinovel',data:[
+   ...Array.from({length:20},(_,i)=>entry(910060+i,'星空郵局 外傳'+i)),
+   entry(910090,'星空郵局'),entry(910091,'星空郵局 已移除',{isDeleted:true}),
+   entry(910092,'星空郵局 限制版',{labels:['日本轻小说','R18']}),
+  ]});
+ };
+ try{
+  const first=await lnovel.lnovelApiSearch('星空邮局',1),second=await lnovel.lnovelApiSearch('星空郵局',2);
+  assert.equal(first.items[0].sourceId,'910090');
+  assert.equal(first.items[0].author,'測試作者');
+  assert.equal(first.items.length,18);assert.equal(first.total,21);assert.equal(first.hasMore,true);
+  assert.equal(second.items.length,3);assert.equal(second.hasMore,false);
+  assert.equal(new Set([...first.items,...second.items].map(w=>w.id)).size,21);
+  const author=await lnovel.lnovelApiSearch('测试作者',1);
+  assert.equal(author.total,21);
+  assert.equal((await lnovel.lnovelApiSearch('插画者',1)).total,0);
+  assert.equal((await lnovel.lnovelApiSearch('不存在的作品',1)).items.length,0);
+  assert.equal(calls,1);
+ }finally{globalThis.fetch=original;}
 });

@@ -56,7 +56,7 @@ export async function GET(req:Request){
  if(action==='search'||action==='test'){
  const names=['all','readable'].includes(source)?readingSources(kind):[source];
  if(names.some(n=>!['bangumi','narou','bridge'].includes(n)&&!isMangaDex(n)&&!isNovelSource(n)&&!isReaderService(n)&&!isPublicSource(n)))return Response.json({error:'不支持的来源'},{status:400});
- const results=await Promise.all(names.map(async n=>{try{const data=await search(n,q,page,kind,sort,p.get('tag')||'');const message=data.partial?'部分插件未能响应，已显示成功来源的作品':`已读取 ${data.items.length} 部作品`;observe(n,!data.partial,message);return {...data,status:{source:n,ok:!data.partial,message,retryable:!!data.partial}};}catch(e){return {items:[],total:0,hasMore:false,status:{source:n,ok:false,...failure(n,action,e)}};}}));
+ const results=await Promise.all(names.map(async n=>{try{const data=await search(n,q,page,kind,sort,p.get('tag')||'');const message=data.partial?'来源部分数据未能返回，已显示可用作品':`已读取 ${data.items.length} 部作品`;observe(n,!data.partial,message);return {...data,status:{source:n,ok:!data.partial,message,retryable:!!data.partial}};}catch(e){return {items:[],total:0,hasMore:false,status:{source:n,ok:false,...failure(n,action,e)}};}}));
  const items:Work[]=results.flatMap(result=>result.items);
  const recommendations=action==='search'&&!q&&page===1&&sort==='popular'&&!p.get('tag')&&['all','readable','bangumi'].includes(source);
  return Response.json({items,total:results.reduce((s,x)=>s+x.total,0),hasMore:results.some(x=>x.hasMore??page*18<x.total),
