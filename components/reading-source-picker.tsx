@@ -17,6 +17,7 @@ type Props = {
   work: Work; current: Work; providers: Provider[]; currentCount?: number;
   active?: boolean; busy?: boolean; error?: string; notice?: string;
   onSelect: (candidate: ReadingCandidate) => void; onCancel?: () => void;
+  onPrepare?: (candidate:ReadingCandidate) => void;
 };
 
 const completed = new Map<string, CheckResult>();
@@ -114,14 +115,16 @@ export function ReadingSourcePicker(props: Props) {
       return <article key={provider.id} className={'source-choice ' + (selected ? 'is-current' : 'source-choice-' + check.state)}>
         <button type="button" className="source-choice-main" aria-pressed={selected}
           aria-label={selected ? provider.name + '，当前阅读源' : '选择 ' + provider.name + ' 作为阅读源'}
-          disabled={busy || selected || check.state !== 'found'} onClick={select}>
+          disabled={busy || selected || check.state !== 'found'} onClick={select}
+          onPointerEnter={()=>{if(single)props.onPrepare?.(single);}} onFocus={()=>{if(single)props.onPrepare?.(single);}}>
           <span className="source-choice-name"><i/>{provider.name}</span>
           <span className="source-choice-status">{selected ? <><Check size={13}/>当前源</> : labels[check.state]}</span>
           <small>{selected ? current.title + (props.currentCount ? ' · ' + props.currentCount + ' 章' : '') : single?.work.title || check.message}</small>
         </button>
         {!selected && single && <p className="source-choice-credit">{single.work.author || '作者未标注'} · {single.work.language} · {single.chapterCount} 章</p>}
         {check.items.length > 1 && expanded === provider.id && <div className="source-choice-versions">{check.items.map(candidate =>
-          <button type="button" disabled={busy} key={candidate.work.id} onClick={() => props.onSelect(candidate)}>
+          <button type="button" disabled={busy} key={candidate.work.id} onClick={() => props.onSelect(candidate)}
+            onPointerEnter={()=>props.onPrepare?.(candidate)} onFocus={()=>props.onPrepare?.(candidate)}>
             <strong>{candidate.work.title}</strong>
             <small>{candidate.work.author || '作者未标注'} · {candidate.work.language} · {candidate.chapterCount} 章</small>
           </button>,

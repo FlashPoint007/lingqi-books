@@ -156,6 +156,10 @@ test('lnovel searches beyond the charts with Chinese normalization, exact titles
   assert.equal(author.total,21);
   assert.equal((await lnovel.lnovelApiSearch('插画者',1)).total,0);
   assert.equal((await lnovel.lnovelApiSearch('不存在的作品',1)).items.length,0);
+  const full=await lnovel.lnovelApiSearch('',1,'library');
+  assert.equal(full.total,21);assert.equal(full.items.length,18);assert.equal(full.hasMore,true);
+  const recent=await lnovel.lnovelApiSearch('',2,'updated');
+  assert.equal(recent.total,21);assert.equal(recent.items.length,3);
   assert.equal(calls,1);
  }finally{globalThis.fetch=original;}
 });

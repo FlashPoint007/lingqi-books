@@ -12,11 +12,12 @@ export type ReadingPreferences = {
   theme: 'paper' | 'white' | 'green' | 'dark' | 'custom';
   layout: 'scroll' | 'page';
   imageQuality: 'original' | 'saver';
+  preload: boolean;
   backgroundColor: string; textColor: string; paragraphSpacing: number; indent: boolean;
 };
 export type ReadingPosition = { key: string; ratio: number; anchor?: string; offset?: number };
 export const DEFAULT_READING_PREFERENCES: ReadingPreferences = {
-  fontSize: 20, lineHeight: 2, width: 780, fontFamily: 'serif', theme: 'paper', layout: 'scroll', imageQuality: 'original',
+  fontSize: 20, lineHeight: 2, width: 780, fontFamily: 'serif', theme: 'paper', layout: 'scroll', imageQuality: 'original', preload:true,
   backgroundColor: '#f5f0e5', textColor: '#464839', paragraphSpacing: 1.15, indent: true,
 };
 export function isReadingColor(value: unknown): value is string {
@@ -39,6 +40,7 @@ export function readingPreferences(value: unknown): ReadingPreferences {
       ? prefs.theme as ReadingPreferences['theme'] : 'paper',
     layout: prefs.layout === 'page' ? 'page' : 'scroll',
     imageQuality: prefs.imageQuality === 'saver' ? 'saver' : 'original',
+    preload:typeof prefs.preload==='boolean'?prefs.preload:true,
     backgroundColor: isReadingColor(prefs.backgroundColor) ? prefs.backgroundColor.toLowerCase() : '#f5f0e5',
     textColor: isReadingColor(prefs.textColor) ? prefs.textColor.toLowerCase() : '#464839',
     paragraphSpacing: number('paragraphSpacing', 0.4, 2, 1.15),

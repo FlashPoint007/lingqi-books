@@ -4,7 +4,9 @@ import type {ReadingPosition} from './reading-preferences';
 export type Progress={
  chapter:number;page:number;label:string;time:number;
  mangaChapter?:Chapter;novelChapterId?:string;position?:ReadingPosition;
+ work?:Work;
 };
+export type HistoryItem={work:Work;progress:Progress};
 
 const SHELF='lq-shelf', PROGRESS='lq-progress';
 const SHELF_ITEM=SHELF+':work:', PROGRESS_ITEM=PROGRESS+':work:';
@@ -38,7 +40,7 @@ export function loadShelf():Work[]{
 }
 export function storeShelfItem(work:Work,remove:boolean){
  // A tombstone also hides items loaded from an earlier version's shelf.
- localStorage.setItem(SHELF_ITEM+work.id,JSON.stringify({work:remove?null:work,time:Date.now()}));
+ localStorage.setItem(SHELF_ITEM+work.id,JSON.stringify({work:remove?null:work,lastWork:work,time:Date.now()}));
 }
 export function loadProgress():Record<string,Progress>{
  const legacy=read(PROGRESS);
@@ -52,6 +54,27 @@ export function loadProgress():Record<string,Progress>{
 }
 export function storeProgress(id:string,entry:Progress){
  localStorage.setItem(PROGRESS_ITEM+id,JSON.stringify(entry));
+}
+export function readingHistory(progress:Record<string,Progress>,known:Work[]=[]):HistoryItem[]{
+ const works=new Map(known.filter(isWork).map(work=>[work.id,work]));
+ return Object.entries(progress).flatMap(([id,entry])=>{
+  if(!entry||!Number.isFinite(new Date(entry.time).getTime())||!Number.isFinite(entry.chapter)||entry.chapter<0
+   ||!Number.isFinite(entry.page)||entry.page<0)return [];
+  const work=isWork(entry.work)&&entry.work.id===id?entry.work:works.get(id);
+  return work?[{work,progress:entry}]:[];
+ }).sort((a,b)=>b.progress.time-a.progress.time);
+}
+export function loadHistory(progress=loadProgress()):HistoryItem[]{
+ const legacy=read(SHELF);
+ const known:Work[]=Array.isArray(legacy)?legacy.filter(isWork):[];
+ for(const [,value] of items(SHELF_ITEM)){
+  if(!value||typeof value!=='object')continue;
+  for(const field of ['work','lastWork']){
+   const work=(value as Record<string,unknown>)[field];
+   if(isWork(work))known.push(work);
+  }
+ }
+ return readingHistory(progress,known);
 }
 export function libraryStorageKey(key:string|null){
  if(key===null)return 'both';

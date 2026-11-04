@@ -194,3 +194,30 @@ test('recommendations keep provider order, deduplicate simplified and traditiona
  ];
  assert.deepEqual(discovery.popularWorkIds(novels,'novel',false),['left','right']);
 });
+
+test('readable catalogs stream the completed source before another source finishes',async()=>{
+ const original=globalThis.fetch,old=process.env.PUBLIC_READING_SOURCES;
+ process.env.PUBLIC_READING_SOURCES='sfacg,n8novel';
+ let finishSlow;
+ globalThis.fetch=async input=>{
+  const url=new URL(input);
+  if(url.hostname==='s.sfacg.com')return new Response('<a href="https://book.sfacg.com/Novel/910069/">速度样本99991</a>');
+  assert.ok(url.hostname.endsWith('8novel.com'));
+  return new Promise(resolve=>{finishSlow=()=>resolve(new Response('Unavailable',{status:503}));});
+ };
+ try{
+  const response=await catalog.GET(new Request('https://site.example/api/catalog?source=readable&q=速度样本99991&stream=1'));
+  assert.match(response.headers.get('content-type'),/application\/x-ndjson/);
+  const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',early;
+  while(!early){
+   const part=await reader.read();assert.equal(part.done,false);buffer+=decoder.decode(part.value,{stream:true});
+   let at;while((at=buffer.indexOf('\n'))>=0){const value=JSON.parse(buffer.slice(0,at));buffer=buffer.slice(at+1);if(value.items.length)early=value;}
+  }
+  assert.equal(early.items[0].id,'sfacg:910069');assert.deepEqual(early.pendingSources,['n8novel']);
+  while(!finishSlow)await Promise.resolve();finishSlow();
+  let final;
+  while(true){const part=await reader.read();if(part.done)break;buffer+=decoder.decode(part.value,{stream:true});let at;while((at=buffer.indexOf('\n'))>=0){final=JSON.parse(buffer.slice(0,at));buffer=buffer.slice(at+1);}}
+  assert.deepEqual(final.pendingSources,[]);assert.equal(final.items.length,1);
+  assert.equal(final.statuses.find(status=>status.source==='n8novel').ok,false);
+ }finally{globalThis.fetch=original;if(old===undefined)delete process.env.PUBLIC_READING_SOURCES;else process.env.PUBLIC_READING_SOURCES=old;}
+});

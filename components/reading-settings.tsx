@@ -67,6 +67,8 @@ export function ReadingSettings({preferences, onChange, manga, mangaQuality}: {
         <p style={{textIndent: p.indent ? '2em' : 0}}>下一页，还有新的故事。</p>
       </div>
     </>}
-    <button type="button" className="reading-reset" onClick={() => onChange({...DEFAULT_READING_PREFERENCES, layout: p.layout})}>恢复默认排版</button>
+    <label className="reading-indent"><input type="checkbox" checked={p.preload} onChange={event=>update({preload:event.target.checked})}/>提前加载{manga?'下一页图片':'下一章正文'}</label>
+    <p className="reading-panel-note">节省流量模式、慢速网络或页面在后台时暂停预加载。</p>
+    <button type="button" className="reading-reset" onClick={() => onChange({...DEFAULT_READING_PREFERENCES, layout: p.layout,preload:p.preload})}>恢复默认排版</button>
   </div>;
 }

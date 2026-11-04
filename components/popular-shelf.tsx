@@ -2,7 +2,7 @@
 
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {ArrowRight,BookOpen,Layers,RotateCw} from 'lucide-react';
-import {catalogRequest} from '../lib/books/catalog-client';
+import {searchCatalog} from '../lib/books/catalog-client';
 import type {Catalog,Work} from '../lib/books/model';
 
 type Kind=Work['kind'];
@@ -37,16 +37,17 @@ export function PopularShelf({feed,onOpen,onBrowse,onRetry,cover,sourceName}:{
   const hit=cache.current.get(key);
   if(hit&&hit.until>Date.now()){setResult({key,data:hit.data});return;}
   const controller=new AbortController();
-  void catalogRequest({source,kind,sort:'popular',page:1},controller.signal,20000).then((data:Catalog)=>{
+  const update=(data:Catalog)=>{if(!controller.signal.aborted)setResult({key,data});};
+  void searchCatalog({source,kind,sort:'popular',page:1},controller.signal,update).then((data:Catalog)=>{
    if(controller.signal.aborted)return;
    if(data.items.length)cache.current.set(key,{data,until:Date.now()+300000});
    setResult({key,data});
-  }).catch(error=>{if(!controller.signal.aborted)setResult({key,error:error.message});});
+  }).catch(error=>{if(!controller.signal.aborted)setResult(previous=>({key,data:previous?.key===key?previous.data:undefined,error:error.message}));});
   return()=>controller.abort();
  },[attempt,key,kind,preference,shared,source]);
  const data=shared?feed.data:result?.key===key?result.data:undefined;
  const error=shared?feed.error:result?.key===key?result.error:undefined;
- const loading=shared?feed.busy:!data&&!error;
+ const loading=shared?feed.busy:!data&&!error||!!data?.pendingSources?.length&&!data.items.length;
  const byId=new Map(data?.items.map(work=>[work.id,work]));
  const items=data?.recommendationIds
   ?data.recommendationIds.flatMap(id=>{const work=byId.get(id);return work?[work]:[];})
@@ -86,7 +87,7 @@ export function PopularShelf({feed,onOpen,onBrowse,onRetry,cover,sourceName}:{
      <strong title={work.title}>{work.title}</strong>
      <small>{source==='bangumi'?'Bangumi · 作品资料':sourceName(work)}</small>
     </button>
-   </li>)}</ol>{failure&&<p className="popular-note">部分阅读源暂时不可用，已展示成功返回的推荐。</p>}</>:
+   </li>)}</ol>{!!data?.pendingSources?.length&&!error&&<p className="popular-note" role="status">已展示可用推荐，另有 {data.pendingSources.length} 个来源正在加载…</p>}{(failure||error)&&<p className="popular-note">部分阅读源暂时不可用，已展示成功返回的推荐。</p>}</>:
    <div className="popular-empty" role="status"><p>{error||failure?.message||'这组推荐暂时没有作品，可以切换来源。'}</p>
     <button className="outline-button" onClick={retry}><RotateCw size={14}/>重新加载</button>
    </div>}

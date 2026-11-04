@@ -74,10 +74,10 @@ async function volumeChapters(nid:string,vid:string){
  if(result.nid!==nid||result.vid!==vid||result.chapters.some(c=>c.nid!==nid||c.vid!==vid))throw new Error('分卷与作品不匹配');
  return result.isDeleted?[]:result.chapters;
 }
-export async function lnovelApiSearch(q:string,page:number){
+export async function lnovelApiSearch(q:string,page:number,sort='popular'){
  if(/^\d{1,12}$/.test(q))return {items:page===1?[(await novel(q)).work]:[],total:1,hasMore:false};
  let indexUnavailable=false;
- if(q){
+ if(q||['library','updated'].includes(sort)){
   try{
    const entries=await cached('lnovelapi:search-index',async()=>{
     const data=await load('novels',bookIndex);
@@ -89,8 +89,10 @@ export async function lnovelApiSearch(q:string,page:number){
    },300000);
    const query=chineseKey(q);
    const score=(entry:typeof entries[number])=>entry.title===query?0:entry.title.startsWith(query)?1:entry.title.includes(query)?2:3;
-   const items=query?entries.filter(entry=>entry.title.includes(query)||entry.author.includes(query))
-    .sort((a,b)=>score(a)-score(b)).map(entry=>entry.work):[];
+   const matching=q?(query?entries.filter(entry=>entry.title.includes(query)||entry.author.includes(query)):[]):[...entries];
+   const items=matching.sort((a,b)=>q?score(a)-score(b):sort==='updated'
+    ?(Date.parse(b.work.updated||'')||0)-(Date.parse(a.work.updated||'')||0):Number(a.work.sourceId)-Number(b.work.sourceId))
+    .map(entry=>entry.work);
    return {items:items.slice((page-1)*18,page*18),total:items.length,hasMore:page*18<items.length};
   }catch{indexUnavailable=true;}
  }

@@ -8,7 +8,7 @@ import {isNovelSource,NOVEL_SOURCES,searchNovel,novelDetail,novelChapters,novelC
 import {isReaderService,serviceConfigured,serviceSearch,serviceWork,serviceChapters,serviceContent} from '../../../lib/books/reader-services';
 import {observe,observed,sourceFailure} from '../../../lib/books/availability';
 function failure(source:string,action:string,error:unknown){const details=sourceFailure(error);observe(source,false,details.message,details);console.warn(JSON.stringify({event:'source_failure',source,action,code:details.code,httpStatus:details.httpStatus}));return details;}
-async function search(source:string,q:string,page:number,kind:string,sort:string,tag:string):Promise<any>{if(isPublicSource(source))return kind===PUBLIC_SOURCES[source].kind?publicSearch(source,q,page):{items:[],total:0,hasMore:false};if(isNovelSource(source)){const mapped=novelBridgeSource(source);return kind==='novel'?(mapped?bridgeSearch(q,page,kind,mapped):searchNovel(source,q,page,sort)):{items:[],total:0,hasMore:false};}if(isReaderService(source))return kind==='manga'?serviceSearch(source,q,page):{items:[],total:0,hasMore:false};if(source==='bridge')return bridgeSearch(q,page,kind);if(source==='bangumi')return searchBangumi(q,kind,page,sort,tag);if(isMangaDex(source))return searchManga(q,page,sort,source);if(source==='narou')return narou(q,page);throw new Error('不支持的来源');}
+async function search(source:string,q:string,page:number,kind:string,sort:string,tag:string):Promise<any>{if(isPublicSource(source))return kind===PUBLIC_SOURCES[source].kind?publicSearch(source,q,page,sort):{items:[],total:0,hasMore:false};if(isNovelSource(source)){const mapped=novelBridgeSource(source);return kind==='novel'?(mapped?bridgeSearch(q,page,kind,mapped):searchNovel(source,q,page,sort)):{items:[],total:0,hasMore:false};}if(isReaderService(source))return kind==='manga'?serviceSearch(source,q,page):{items:[],total:0,hasMore:false};if(source==='bridge')return bridgeSearch(q,page,kind);if(source==='bangumi')return searchBangumi(q,kind,page,sort,tag);if(isMangaDex(source))return searchManga(q,page,sort,source);if(source==='narou')return narou(q,page);throw new Error('不支持的来源');}
 export async function GET(req:Request){
  const p=new URL(req.url).searchParams;const action=p.get('action')||'search',source=p.get('source')||'readable',id=p.get('id')||'',workId=p.get('workId')||'';const q=(p.get('q')||'').trim();const page=Number(p.get('page')||1),kind=p.get('kind')==='manga'?'manga':'novel',sort=p.get('sort')||'popular';
  if(q.length>100||id.length>2000||workId.length>1500||!Number.isInteger(page)||page<1||page>100)return Response.json({error:'搜索参数无效'},{status:400});
@@ -56,12 +56,32 @@ export async function GET(req:Request){
  if(action==='search'||action==='test'){
  const names=['all','readable'].includes(source)?readingSources(kind):[source];
  if(names.some(n=>!['bangumi','narou','bridge'].includes(n)&&!isMangaDex(n)&&!isNovelSource(n)&&!isReaderService(n)&&!isPublicSource(n)))return Response.json({error:'不支持的来源'},{status:400});
- const results=await Promise.all(names.map(async n=>{try{const data=await search(n,q,page,kind,sort,p.get('tag')||'');const message=data.partial?'来源部分数据未能返回，已显示可用作品':`已读取 ${data.items.length} 部作品`;observe(n,!data.partial,message);return {...data,status:{source:n,ok:!data.partial,message,retryable:!!data.partial}};}catch(e){return {items:[],total:0,hasMore:false,status:{source:n,ok:false,...failure(n,action,e)}};}}));
- const items:Work[]=results.flatMap(result=>result.items);
+ const readSource=async(n:string)=>{try{const data=await search(n,q,page,kind,sort,p.get('tag')||'');const message=data.partial?'来源部分数据未能返回，已显示可用作品':`已读取 ${data.items.length} 部作品`;observe(n,!data.partial,message);return {...data,status:{source:n,ok:!data.partial,message,retryable:!!data.partial}};}catch(e){return {items:[],total:0,hasMore:false,status:{source:n,ok:false,...failure(n,action,e)}};}};
  const recommendations=action==='search'&&!q&&page===1&&sort==='popular'&&!p.get('tag')&&['all','readable','bangumi'].includes(source);
- return Response.json({items,total:results.reduce((s,x)=>s+x.total,0),hasMore:results.some(x=>x.hasMore??page*18<x.total),
-  statuses:results.map(x=>x.status),...(recommendations?{recommendationIds:popularWorkIds(items,kind,source==='bangumi')}:{})},
-  {headers:{'Cache-Control':'private, no-store'}});
+ const merge=(results:any[])=>{
+  const items:Work[]=results.flatMap(result=>result.items);
+  return {items,total:results.reduce((s,x)=>s+x.total,0),hasMore:results.some(x=>x.hasMore??page*18<x.total),
+  statuses:results.map(x=>x.status),...(recommendations?{recommendationIds:popularWorkIds(items,kind,source==='bangumi')}:{})};
+ };
+ if(action==='search'&&['all','readable'].includes(source)&&p.get('stream')==='1'){
+  let closed=false;
+  const completed=new Map<string,any>(),encoder=new TextEncoder();
+  const body=new ReadableStream<Uint8Array>({
+   async start(controller){
+    const send=()=>{if(!closed)controller.enqueue(encoder.encode(JSON.stringify({
+     ...merge(names.flatMap(name=>completed.has(name)?[completed.get(name)]:[])),
+     pendingSources:names.filter(name=>!completed.has(name)),
+    })+'\n'));};
+    try{
+     send();
+     await Promise.all(names.map(async name=>{completed.set(name,await readSource(name));send();}));
+     if(!closed){closed=true;controller.close();}
+    }catch(error){if(!closed){closed=true;controller.error(error);}}
+   },cancel(){closed=true;},
+  });
+  return new Response(body,{headers:{'Content-Type':'application/x-ndjson; charset=utf-8','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
+ }
+ return Response.json(merge(await Promise.all(names.map(readSource))),{headers:{'Cache-Control':'private, no-store'}});
  }
  if(isPublicSource(source)){if(action==='detail')return Response.json(await publicWork(source,id));if(action==='chapters')return Response.json(await publicChapters(source,id,page));if(action==='content'||action==='pages')return Response.json(await publicContent(source,id,workId));}
  if(isNovelSource(source)){if(action==='detail')return Response.json(await novelDetail(source,id));if(action==='chapters')return Response.json(await novelChapters(source,id,page));if(action==='content')return Response.json(withNovelImagePaths(source,id,workId,await novelContent(source,id,workId)));}
