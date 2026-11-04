@@ -86,7 +86,7 @@ test('lnovel API binds volumes, chapters and in-order illustrations to the selec
   paths.push(url.pathname);
   assert.equal(url.origin,origin);
   const data={
-   '/api/bili/novel/910040':{nid:910040,name:'星空邮局',cover,labels:['日本轻小说'],authors:[{name:'测试作者',position:'author'}],volumes:[{nid:910040,vid:910041,title:'第一卷'}]},
+   '/api/bili/novel/910040':{nid:910040,name:'星空邮局',description:'<p>原创简介。<br>第二行。</p><script>untrusted()</script>',cover,labels:['日本轻小说'],authors:[{name:'测试作者',position:'author'}],volumes:[{nid:910040,vid:910041,title:'第一卷'}]},
    '/api/bili/novel/910040/vol/910041':{nid:910040,vid:910041,chapters:[{nid:910040,vid:910041,cid:910042,title:'邮差'}]},
    '/api/bili/novel/910040/chapter/910042':{nid:910040,vid:910041,cid:910042,images:[{src:illustration},{src:other}],
     content:`<p>一封信。</p><img src="${illustration}"><script>shouldNotRun()</script><img src="${other}"><p>送达。</p>`},
@@ -96,6 +96,8 @@ test('lnovel API binds volumes, chapters and in-order illustrations to the selec
   return new Response(Uint8Array.from([255,216,255,0]),{headers:{'content-type':'image/jpeg'}});
  };
  try{
+  const work=await lnovel.lnovelApiWork('910040');
+  assert.equal(work.summary,'原创简介。\n第二行。');
   const catalog=await lnovel.lnovelApiChapters('910040',1);
   assert.equal(catalog.items[0].id,'910040~910041~910042');
   await assert.rejects(lnovel.lnovelApiContent('910040~910041~910043','910040'),/目录/);

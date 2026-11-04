@@ -55,7 +55,8 @@ function imageUrl(raw:string|null|undefined,nid:string,cid?:string){
 function toWork(id:string,title:string,author:string,summary:string,cover:string|undefined,tags:string[],updated?:string):Work{
  return {
   id:'lnovelapi:'+id,source:'lnovelapi',sourceId:id,title,originalTitle:title,kind:'novel',
-  cover:cover?imagePath(id):'',summary,author,tags,url:BASE+'/bili/novel/'+id+'/feed.xml',
+  cover:cover?imagePath(id):'',summary:richText(summary,BASE,()=>false)
+   .flatMap(block=>block.type==='text'?[block.text]:[]).join('\n\n'),author,tags,url:BASE+'/bili/novel/'+id+'/feed.xml',
   language:'中文译文',readable:true,updated,
  };
 }
