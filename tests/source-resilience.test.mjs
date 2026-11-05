@@ -103,3 +103,11 @@ test('browser preference/session cookies do not disable explicitly anonymous pub
  const first=await f.run(()=>cachedPublicCatalog('lnovelapi',{q:'public'},load),{Cookie:'preferences=one'});assert.equal(first.edgeCache,'MISS');await f.drain();
  const next=await f.run(()=>cachedPublicCatalog('lnovelapi',{q:'public'},load),{Cookie:'preferences=two'});assert.equal(next.edgeCache,'HIT');assert.equal(calls,1);
 }));
+test('Sites uses an isolated named cache even when the default cache is disabled',()=>configured(async()=>{
+ const f=fixture(),previous=Object.getOwnPropertyDescriptor(globalThis,'caches');const opened=[];
+ Object.defineProperty(globalThis,'caches',{configurable:true,value:{get default(){throw new Error('default cache disabled');},async open(name){opened.push(name);return f.cache;}}});
+ try{
+  const read=()=>runWithPublicCache(new Request('https://books.example/',{headers:{Cookie:'preference=one'}}),f.ctx,()=>cachedPublicCatalog('lnovelapi',{q:'named'},async()=>({items:[],total:0})));
+  assert.equal((await read()).edgeCache,'MISS');await f.drain();assert.equal((await read()).edgeCache,'HIT');assert.deepEqual(opened,['lingqi-public-reading-v1','lingqi-public-reading-v1']);
+ }finally{if(previous)Object.defineProperty(globalThis,'caches',previous);else delete globalThis.caches;}
+}));

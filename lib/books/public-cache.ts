@@ -2,7 +2,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 
 type CacheStore={match:(request:Request)=>Promise<Response|undefined>;put:(request:Request,response:Response)=>Promise<unknown>};
 type Lifetime={waitUntil:(promise:Promise<unknown>)=>void};
-type Scope={origin:string;anonymous:boolean;cache?:CacheStore;lifetime:Lifetime};
+type Scope={origin:string;anonymous:boolean;cache?:CacheStore;open?:()=>Promise<CacheStore>;opening?:Promise<CacheStore|undefined>;lifetime:Lifetime};
 const context=new AsyncLocalStorage<Scope>();
 const revision='public-reading-v38-1';
 // These adapters never consume or forward incoming browser cookies. Account
@@ -10,10 +10,19 @@ const revision='public-reading-v38-1';
 const catalogSources=new Set('bangumi mangadex mangadex-en narou lnovelapi n8novel komiic manhuagui lnovel mangabz sfacg bh3 linovel kakuyomu dm5'.split(' '));
 const imageSources=new Set(['bh3','lnovelapi']);
 export function runWithPublicCache<T>(request:Request,lifetime:Lifetime,run:()=>T,cache?:CacheStore):T{
- const runtime=globalThis as typeof globalThis & {caches?:{default?:CacheStore}};
- return context.run({origin:new URL(request.url).origin,anonymous:!request.headers.has('Authorization'),cache:cache??runtime.caches?.default,lifetime},run);
+ // Namespaced Sites workers disable caches.default. Named caches retain the
+ // platform's per-Worker isolation and need no additional storage binding.
+ const runtime=globalThis as unknown as {caches?:{open:(name:string)=>Promise<CacheStore>}};
+ return context.run({origin:new URL(request.url).origin,anonymous:!request.headers.has('Authorization'),cache,open:runtime.caches?.open?()=>runtime.caches!.open('lingqi-public-reading-v1'):undefined,lifetime},run);
 }
-function usable(){const scope=context.getStore();return scope?.anonymous&&scope.cache&&typeof scope.lifetime.waitUntil==='function'?scope:undefined;}
+async function usable(){
+ const scope=context.getStore();if(!scope?.anonymous||typeof scope.lifetime.waitUntil!=='function')return;
+ if(!scope.cache&&scope.open){
+  scope.opening??=(async()=>{let timer:ReturnType<typeof setTimeout>|undefined;try{return await Promise.race([scope.open!(),new Promise<undefined>(resolve=>{timer=setTimeout(()=>resolve(undefined),250);})]);}catch{return;}finally{clearTimeout(timer);}})();
+  scope.cache=await scope.opening;
+ }
+ return scope.cache?scope:undefined;
+}
 function enabled(source:string){return source==='bangumi'||source==='mangadex'||source==='narou'&&process.env.NAROU_ENABLED==='true'||(process.env.PUBLIC_READING_SOURCES||'').split(',').map(s=>s.trim()).includes(source);}
 async function cacheKey(scope:Scope,kind:string,parts:unknown){
  const policy=[revision,process.env.PUBLIC_READING_SOURCES||'',process.env.MANGADEX_BLOCKED_GROUPS||'',process.env.NAROU_ENABLED||''];
@@ -39,7 +48,7 @@ function validCatalog(value:any):value is CatalogData{return value&&Array.isArra
 /** Cache parsed public catalogs, including individual providers of an NDJSON search.
  * Never cache raw HTML, failed parses, aggregate failures or account services. */
 export async function cachedPublicCatalog<T extends CatalogData>(source:string,params:unknown,load:()=>Promise<T>):Promise<T>{
- const scope=usable();if(!scope||!catalogSources.has(source)||!enabled(source))return load();
+ const scope=await usable();if(!scope||!catalogSources.has(source)||!enabled(source))return load();
  const key=await cacheKey(scope,'catalog',[source,params]);
  try{
   const hit=await lookup(scope.cache!,key);
@@ -56,7 +65,7 @@ export async function cachedPublicCatalog<T extends CatalogData>(source:string,p
 /** Stable anonymous image gateways only. Ticket/quota based and private images
  * are excluded. The cache branch buffers at most 2 MB; the reader still streams. */
 export async function cachedPublicImage(request:Request,load:()=>Promise<Response>):Promise<Response>{
- const scope=usable(),url=new URL(request.url),source=url.searchParams.get('source')||'';
+ const scope=await usable(),url=new URL(request.url),source=url.searchParams.get('source')||'';
  if(!scope||url.pathname!=='/api/reader-image'||!imageSources.has(source)||!enabled(source)||request.headers.has('Range'))return load();
  const parts=[...url.searchParams].filter(([key])=>key!=='_retry').sort(([a],[b])=>a.localeCompare(b));
  const key=await cacheKey(scope,'image',parts);
