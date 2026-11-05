@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','chinese','n8novel','komiic','source-errors','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','lnovel-api','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery','reading-probe','source-selection','reading-preferences']){
+for(const name of ['model','chinese','n8novel','komiic','source-errors','bounded-cache','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','lnovel-api','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery','reading-probe','source-selection','reading-preferences']){
  let source=await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8');source=source.replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
 const route=(await readFile(new URL('../app/api/catalog/route.ts',import.meta.url),'utf8')).replace(/from '\.\.\/\.\.\/\.\.\/lib\/books\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,'catalog.mjs'),ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
@@ -42,7 +42,7 @@ test('catalog reports missing configuration as a non-retryable failure',async()=
 test('existing metadata network errors remain retryable while permission errors do not',()=>{assert.equal(sourceFailure(new Error('来源连接暂时失败，请稍后重试')).retryable,true);assert.equal(sourceFailure(new Error('来源暂不可用（503）')).httpStatus,503);assert.equal(sourceFailure(new Error('来源暂不可用（403）')).retryable,false);assert.equal(sourceFailure(new Error('来源请求过于频繁，请稍后重试')).code,'rate_limited');});
 test('parallel chapter images queue instead of rejecting, and failed fetches release their slots',async()=>{
  const original=globalThis.fetch;let active=0,peak=0,calls=0;globalThis.fetch=async url=>{calls++;active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,5));active--;if(new URL(url).pathname==='/failure')throw new Error('fixture transport failure');return new Response('image');};
- try{const results=await Promise.allSettled(Array.from({length:15},(_,i)=>network.request(new URL('https://images.fixture/'+(i===1?'failure':i)))));assert.equal(results.filter(x=>x.status==='fulfilled').length,14);assert.equal(results.filter(x=>x.status==='rejected').length,1);assert.equal(peak,3);assert.equal(calls,15);assert.equal((await network.request(new URL('https://images.fixture/after-failure'))).status,200);}finally{globalThis.fetch=original;}
+ try{const results=await Promise.allSettled(Array.from({length:15},(_,i)=>network.request(new URL('https://images.fixture/'+(i===1?'failure':i))).then(async r=>{await r.text();return r;})));assert.equal(results.filter(x=>x.status==='fulfilled').length,14);assert.equal(results.filter(x=>x.status==='rejected').length,1);assert.equal(peak,3);assert.equal(calls,15);const after=await network.request(new URL('https://images.fixture/after-failure'));assert.equal(after.status,200);await after.text();}finally{globalThis.fetch=original;}
 });
 
 const discovery=await import(path.join(dir,'reading-discovery.mjs'));
@@ -220,4 +220,22 @@ test('readable catalogs stream the completed source before another source finish
   assert.deepEqual(final.pendingSources,[]);assert.equal(final.items.length,1);
   assert.equal(final.statuses.find(status=>status.source==='n8novel').ok,false);
  }finally{globalThis.fetch=original;if(old===undefined)delete process.env.PUBLIC_READING_SOURCES;else process.env.PUBLIC_READING_SOURCES=old;}
+});
+test('authenticated JSON is isolated and disguised HTML cannot become a cached image',async()=>{
+ const original=globalThis.fetch;let calls=0;globalThis.fetch=async(_url,options)=>{calls++;return Response.json({session:options.headers.Authorization||options.headers['X-Api-Key']});};
+ try{const url=new URL('https://auth.fixture/json');assert.equal((await network.jsonRequest(url,{Authorization:'Bearer one'})).session,'Bearer one');assert.equal((await network.jsonRequest(url,{Authorization:'Bearer two'})).session,'Bearer two');assert.equal((await network.jsonRequest(url,{'X-Api-Key':'key-one'})).session,'key-one');assert.equal((await network.jsonRequest(url,{'X-Api-Key':'key-two'})).session,'key-two');assert.equal(calls,4);await assert.rejects(network.imageResponse(new Response('<html>challenge-platform</html>',{headers:{'Content-Type':'image/jpeg'}})),e=>e.code==='verification_required');}finally{globalThis.fetch=original;}
+});
+test('image signatures are checked while remaining image bytes stream without full buffering',async()=>{
+ let finish;let canceled=false;const upstream=new ReadableStream({start(c){c.enqueue(Uint8Array.from([255,216,255,...Array(20).fill(0)]));finish=()=>{c.enqueue(new Uint8Array([1,2,3]));c.close();};},cancel(){canceled=true;}});
+ let timer;try{const response=await Promise.race([network.imageResponse(new Response(upstream,{headers:{'content-type':'image/jpeg'}})),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('image waited for whole download')),200);})]);assert.equal(response.headers.get('content-type'),'image/jpeg');finish();assert.equal((await response.arrayBuffer()).byteLength,26);assert.equal(canceled,false);}finally{clearTimeout(timer);}
+});
+test('upstream concurrency includes a slow response body and releases on cancel',async()=>{
+ const original=globalThis.fetch;const responses=[];let fourthReady=false;
+ globalThis.fetch=async()=>new Response(new ReadableStream({start(c){c.enqueue(new Uint8Array(32));}}));
+ try{
+  for(let i=0;i<3;i++)responses.push(await network.request(new URL('https://slow-body.fixture/'+i)));
+  const fourth=network.request(new URL('https://slow-body.fixture/4')).then(r=>{fourthReady=true;return r;});
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(fourthReady,false);
+  await responses.pop().body.cancel();responses.push(await fourth);assert.equal(fourthReady,true);
+ }finally{await Promise.all(responses.map(r=>r.body.cancel()));globalThis.fetch=original;}
 });

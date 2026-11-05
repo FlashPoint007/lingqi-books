@@ -6,7 +6,7 @@ import ts from 'typescript';
 import LZString from 'lz-string';
 
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','source-errors','network','manhuagui','lnovel']){
+for(const name of ['model','source-errors','bounded-cache','network','manhuagui','lnovel']){
  const source=(await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8')).replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
@@ -40,7 +40,7 @@ test('novel catalogs bind chapters, and rich text keeps illustration position an
  assert.throws(()=>ln.parseLnContent(novelChapter('<p>請先登入</p>'),'9001','9002'),e=>e.code==='login_required');
 });
 test('reader image endpoints validate chapter manifests and indices before upstream image access',async()=>{
- const original=globalThis.fetch,calls=[];globalThis.fetch=async url=>{const u=new URL(url);calls.push(u.href);if(u.href==='https://lnovel.tw/books-9001')return new Response(novelDetail);if(u.pathname==='/chapters-9002')return new Response(novelChapter('<p>署名。</p><img src="/uploads/art.jpg"><p>末段。</p>'));if(u.pathname==='/uploads/art.jpg')return new Response('sample',{headers:{'content-type':'image/jpeg'}});if(u.pathname==='/comic/9001/')return new Response(guiDetail);if(u.pathname==='/comic/9001/9002.html')return new Response(packed(data));if(u.hostname==='i.hamreus.com')return new Response('sample',{headers:{'content-type':'image/webp'}});throw new Error('Unexpected '+u.href);};
+ const original=globalThis.fetch,calls=[];globalThis.fetch=async url=>{const u=new URL(url);calls.push(u.href);if(u.href==='https://lnovel.tw/books-9001')return new Response(novelDetail);if(u.pathname==='/chapters-9002')return new Response(novelChapter('<p>署名。</p><img src="/uploads/art.jpg"><p>末段。</p>'));if(u.pathname==='/uploads/art.jpg')return new Response(Uint8Array.from([255,216,255,0]),{headers:{'content-type':'image/jpeg'}});if(u.pathname==='/comic/9001/')return new Response(guiDetail);if(u.pathname==='/comic/9001/9002.html')return new Response(packed(data));if(u.hostname==='i.hamreus.com')return new Response(new TextEncoder().encode('RIFF0000WEBP0000'),{headers:{'content-type':'image/webp'}});throw new Error('Unexpected '+u.href);};
  try{const c=await ln.lnContent('9001~9002','9001');assert.match(c.images[0],/^\/api\/reader-image\?/);assert.equal((await ln.lnImage(new URLSearchParams({workId:'9001',id:'9001~9002',index:'0'}))).status,200);await assert.rejects(ln.lnImage(new URLSearchParams({workId:'9001',id:'9001~9002',index:'2'})),/索引/);
  const g=await gui.guiContent('9001~9002','9001');assert.equal(g.images.length,2);assert.equal((await gui.guiImage(new URLSearchParams({workId:'9001',id:'9001~9002',index:'1'}))).status,200);const before=calls.length;await assert.rejects(gui.guiImage(new URLSearchParams({workId:'9001',id:'9001~9002',index:'99'})),/索引/);await assert.rejects(gui.guiContent('9001~9999','9001'),/目录/);assert.equal(calls.length,before);
  }finally{globalThis.fetch=original;}

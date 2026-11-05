@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','image-retry','chinese','source-errors','network','n8novel','komiic']){
+for(const name of ['model','image-retry','chinese','source-errors','bounded-cache','network','n8novel','komiic']){
  const source=(await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8')).replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
@@ -34,7 +34,7 @@ test('novel content preserves illustration positions and paragraphs while removi
  assert.throws(()=>n8.parseN8Text('<title>404. 找不到页面</title>'),e=>e.code==='not_found');
 });
 test('novel image gateway checks the work catalog and image index before fetching files',async()=>{
- const original=globalThis.fetch,calls=[];globalThis.fetch=async url=>{const u=new URL(url);calls.push(u.href);if(u.pathname==='/novelbooks/9001/')return new Response(book);if(u.pathname==='/read/9001/')return new Response(reader);if(u.pathname.startsWith('/txt/'))return new Response('<p>署名。</p><img src="/pics/content/9001/a.jpg"><p>末段。</p>');if(u.pathname==='/pics/content/9001/a.jpg')return new Response('sample',{headers:{'content-type':'image/jpeg'}});throw new Error('Unexpected '+u.href);};
+ const original=globalThis.fetch,calls=[];globalThis.fetch=async url=>{const u=new URL(url);calls.push(u.href);if(u.pathname==='/novelbooks/9001/')return new Response(book);if(u.pathname==='/read/9001/')return new Response(reader);if(u.pathname.startsWith('/txt/'))return new Response('<p>署名。</p><img src="/pics/content/9001/a.jpg"><p>末段。</p>');if(u.pathname==='/pics/content/9001/a.jpg')return new Response(Uint8Array.from([255,216,255,0]),{headers:{'content-type':'image/jpeg'}});throw new Error('Unexpected '+u.href);};
  try{const c=await n8.n8Content('9001~9002','9001');assert.match(c.images[0],/^\/api\/reader-image\?/);assert.equal((await n8.n8Image(new URLSearchParams({workId:'9001',id:'9001~9002',index:'0'}))).status,200);const before=calls.length;await assert.rejects(n8.n8Content('9001~9999','9001'),/目录/);await assert.rejects(n8.n8Content('9999~9002','9001'),/不匹配/);await assert.rejects(n8.n8Image(new URLSearchParams({workId:'9001',id:'9001~9002',index:'3'})),/索引/);assert.equal(calls.length,before);}finally{globalThis.fetch=original;}
 });
 const rawWork={id:'9001',title:'样本漫画',imageUrl:'https://public.komiic.com/comics/sample.jpg',contentType:'REGULAR',warnings:[],authors:[{name:'样本作者'}],categories:[{name:'冒險'}]};
@@ -53,12 +53,12 @@ test('exhausted visitor image quota remains a source failure',async()=>{
 });
 
 test('cold novel cover requests use source-bound filenames without fetching eighteen book catalogs',async()=>{
- const original=globalThis.fetch,calls=[];globalThis.fetch=async(url,opts)=>{const u=new URL(url);calls.push(u.href);assert.equal(u.href,'https://www.8novel.com/pics/0/9511-sample.jpg');assert.match(opts.headers.Accept,/image\//);return new Response('fixture',{headers:{'content-type':'image/jpeg'}});};
+ const original=globalThis.fetch,calls=[];globalThis.fetch=async(url,opts)=>{const u=new URL(url);calls.push(u.href);assert.equal(u.href,'https://www.8novel.com/pics/0/9511-sample.jpg');assert.match(opts.headers.Accept,/image\//);return new Response(Uint8Array.from([255,216,255,0]),{headers:{'content-type':'image/jpeg'}});};
  try{n8.parseN8List('<a title="原创封面测试" href="/novelbooks/9511/"><img src="/pics/0/9511-sample.jpg"></a>');const p=new URLSearchParams({kind:'cover',workId:'9511',file:'9511-sample.jpg'});assert.equal((await n8.n8Image(p)).status,200);assert.equal(calls.length,1);for(const file of ['9512-sample.jpg','../9511.jpg','https://evil.test/9511.jpg','9511.jpg?x=1'])await assert.rejects(n8.n8Image(new URLSearchParams({kind:'cover',workId:'9511',file})),/不匹配/);assert.equal(calls.length,1);}finally{globalThis.fetch=original;}
 });
 
 test('image requests negotiate images and follow only bounded same-origin redirects',async()=>{
- const original=globalThis.fetch,calls=[];globalThis.fetch=async(url,opts)=>{const u=new URL(url);calls.push(u.href);assert.match(opts.headers.Accept,/image\/jpeg/);if(u.pathname==='/redirect')return new Response(null,{status:302,headers:{location:'/actual.jpg'}});if(u.pathname==='/external')return new Response(null,{status:302,headers:{location:'https://other-image.test/a.jpg'}});return new Response('fixture',{headers:{'content-type':'image/jpg'}});};
+ const original=globalThis.fetch,calls=[];globalThis.fetch=async(url,opts)=>{const u=new URL(url);calls.push(u.href);assert.match(opts.headers.Accept,/image\/jpeg/);if(u.pathname==='/redirect')return new Response(null,{status:302,headers:{location:'/actual.jpg'}});if(u.pathname==='/external')return new Response(null,{status:302,headers:{location:'https://other-image.test/a.jpg'}});return new Response(Uint8Array.from([255,216,255,0]),{headers:{'content-type':'image/jpg'}});};
  try{const r=await net.requestImage(new URL('https://images.fixture/redirect'));assert.equal(r.headers.get('content-type'),'image/jpeg');assert.equal(calls.length,2);await assert.rejects(net.requestImage(new URL('https://images.fixture/external'),{'X-Image-Ticket':'synthetic-only'}),e=>e.code==='domain_changed');assert.equal(calls.length,3);assert.ok(calls.every(u=>!u.includes('other-image')));}finally{globalThis.fetch=original;}
 });
 

@@ -8,7 +8,7 @@ export async function catalogRequest(params:Record<string,string|number>,signal?
  try{
   const r=await fetch('/api/catalog?'+new URLSearchParams(Object.entries(params).map(([k,v])=>[k,String(v)])),{signal:controller.signal,headers:{Accept:'application/json'}});
   let data:any;try{data=await r.json();}catch{throw new Error(`网站连接异常（${r.status}），请稍后重试`);}
-  if(!r.ok)throw new Error([data.error||'请求失败',data.hint].filter(Boolean).join('。'));return data;
+  if(!r.ok)throw new Error([data.error||'请求失败',data.hint||(r.headers.get('Retry-After')?`请等待 ${r.headers.get('Retry-After')} 秒后重试`:'')].filter(Boolean).join('。'));return data;
  }catch(e){if(expired&&!signal?.aborted)throw new Error('读取超时，请重试或选择其他来源');throw e;}
  finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
 }
@@ -26,7 +26,7 @@ export async function searchCatalog(params:Record<string,string|number>,signal:A
   const response=await fetch('/api/catalog?'+new URLSearchParams(Object.entries({...params,stream:1}).map(([key,value])=>[key,String(value)])),{
    signal:controller.signal,headers:{Accept:'application/x-ndjson'},
   });
-  if(!response.ok){const error=await response.json() as {error?:string};throw new Error(error.error||'检索失败，请重试');}
+  if(!response.ok){const error=await response.json() as {error?:string;hint?:string};throw new Error([error.error||'检索失败，请重试',error.hint||(response.headers.get('Retry-After')?`请等待 ${response.headers.get('Retry-After')} 秒后重试`:'')].filter(Boolean).join('。'));}
   if(!response.body)throw new Error('来源未返回检索结果');
   const reader=response.body.getReader(),decoder=new TextDecoder();
   let buffer='',latest:Catalog|undefined,total=0;

@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','chinese','n8novel','komiic','source-errors','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','lnovel-api','public-reading']){
+for(const name of ['model','chinese','n8novel','komiic','source-errors','bounded-cache','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','lnovel-api','public-reading']){
  const source=(await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8')).replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
@@ -42,7 +42,7 @@ test('official manga catalogs enforce work identity, ordering and image origins'
  for(const url of ['https://evil.test/new_static_v2/comic/book/9001/1/a.jpg','https://act-webstatic.mihoyo.com/new_static_v2/comic/book/9002/1/a.jpg'])assert.throws(()=>pub.parseBh3Images('9001','1',page(url)),/不匹配/);
 });
 test('SF server binds images to verified chapters and refuses VIP before requesting its body',async()=>{
- const original=globalThis.fetch,calls=[];globalThis.fetch=async url=>{const u=new URL(url);calls.push(u.href);if(u.pathname==='/Novel/910001/')return new Response(detail);if(u.pathname.endsWith('/MainIndex/'))return new Response(toc);if(u.pathname==='/Novel/910001/10/11/')return new Response('<div id="ChapterBody"><p>正文。</p><img src="https://rs.sfacg.com/inline.jpg"><p>结尾。</p></div>');if(u.href==='https://rs.sfacg.com/inline.jpg')return new Response('fixture-image',{headers:{'content-type':'image/jpeg'}});throw new Error('Unexpected request: '+u.href);};
+ const original=globalThis.fetch,calls=[];globalThis.fetch=async url=>{const u=new URL(url);calls.push(u.href);if(u.pathname==='/Novel/910001/')return new Response(detail);if(u.pathname.endsWith('/MainIndex/'))return new Response(toc);if(u.pathname==='/Novel/910001/10/11/')return new Response('<div id="ChapterBody"><p>正文。</p><img src="https://rs.sfacg.com/inline.jpg"><p>结尾。</p></div>');if(u.href==='https://rs.sfacg.com/inline.jpg')return new Response(Uint8Array.from([255,216,255,0]),{headers:{'content-type':'image/jpeg'}});throw new Error('Unexpected request: '+u.href);};
  process.env.PUBLIC_READING_SOURCES='sfacg,bh3';
  try{const content=await pub.publicContent('sfacg','910001~10/11','910001');assert.deepEqual(content.blocks.map(b=>b.type),['text','image','text']);assert.match(content.images[0],/^\/api\/reader-image\?/);const img=await pub.publicImage('sfacg',new URLSearchParams({workId:'910001',id:'910001~10/11',index:'0'}));assert.equal(img.headers.get('content-type'),'image/jpeg');
  await assert.rejects(pub.publicContent('sfacg','910001~vip/12','910001'),e=>e.code==='login_required');assert.equal(calls.some(u=>u.includes('/vip/')),false);
@@ -50,7 +50,7 @@ test('SF server binds images to verified chapters and refuses VIP before request
  }finally{globalThis.fetch=original;delete process.env.PUBLIC_READING_SOURCES;}
 });
 test('official manga serves only chapter-manifest pages, with bounded indices and full page counts',async()=>{
- const original=globalThis.fetch;process.env.PUBLIC_READING_SOURCES='sfacg,bh3';globalThis.fetch=async url=>{const u=new URL(url);if(u.pathname==='/book')return new Response(bh);if(u.pathname==='/book/9001/get_chapter')return new Response('[{"bookid":"9001","chapterid":"1","page":"1","title":"第一话"}]');if(u.pathname==='/book/9001/1')return new Response('<img class="lazy comic_img" data-original="https://act-webstatic.mihoyo.com/new_static_v2/comic/book/9001/1/0001.jpg">');if(u.hostname==='act-webstatic.mihoyo.com')return new Response('fixture-image',{headers:{'content-type':'image/jpeg'}});throw new Error('Unexpected request');};
+ const original=globalThis.fetch;process.env.PUBLIC_READING_SOURCES='sfacg,bh3';globalThis.fetch=async url=>{const u=new URL(url);if(u.pathname==='/book')return new Response(bh);if(u.pathname==='/book/9001/get_chapter')return new Response('[{"bookid":"9001","chapterid":"1","page":"1","title":"第一话"}]');if(u.pathname==='/book/9001/1')return new Response('<img class="lazy comic_img" data-original="https://act-webstatic.mihoyo.com/new_static_v2/comic/book/9001/1/0001.jpg">');if(u.hostname==='act-webstatic.mihoyo.com')return new Response(Uint8Array.from([255,216,255,0]),{headers:{'content-type':'image/jpeg'}});throw new Error('Unexpected request');};
  try{const d=await pub.publicContent('bh3','9001~1','9001');assert.equal(d.images.length,1);assert.match(d.images[0],/^\/api\/reader-image\?/);assert.equal((await pub.publicImage('bh3',new URLSearchParams({workId:'9001',id:'9001~1',index:'0'}))).status,200);await assert.rejects(pub.publicContent('bh3','9001~99','9001'),/目录/);await assert.rejects(pub.publicImage('bh3',new URLSearchParams({workId:'9001',id:'9001~1',index:'99'})),/索引/);
  }finally{globalThis.fetch=original;delete process.env.PUBLIC_READING_SOURCES;}
 });

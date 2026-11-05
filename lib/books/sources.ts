@@ -1,13 +1,14 @@
-import {jsonRequest,requestImage} from './network';
+import {jsonRequest,requestImage,limitedBytes} from './network';
+import {BoundedDataCache} from './bounded-cache';
 import {SourceError} from './source-errors';
 import type {Work,Chapter} from './model';
 const UA='LingqiBooks/0.1 (https://github.com/FlashPoint007/lingqi-books)';
-const cache=new Map<string,{until:number;data:any}>();
+const cache=new BoundedDataCache<any>(180,8*1024*1024,2*1024*1024);
 export async function upstream(url:string,body?:unknown){
- const key=url+JSON.stringify(body||'');const hit=cache.get(key);if(hit&&hit.until>Date.now())return hit.data;
+ const key=url+JSON.stringify(body||'');const hit=cache.get(key);if(hit!==undefined)return hit;
  const task=(async()=>{const res=await fetch(url,{method:body?'POST':'GET',headers:{'User-Agent':UA,'Accept':'application/json',...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000),redirect:'manual'});
- if(!res.ok)throw new Error(res.status===429?'来源请求过于频繁，请稍后重试':`来源暂不可用（${res.status}）`);
- const data=await res.json();if(cache.size>=180)cache.delete(cache.keys().next().value!);cache.set(key,{until:Date.now()+300000,data});return data;})();
+ if(!res.ok){await res.body?.cancel();throw new Error(res.status===429?'来源请求过于频繁，请稍后重试':`来源暂不可用（${res.status}）`);}
+ const data=JSON.parse(new TextDecoder().decode(await limitedBytes(res,4000000)));cache.set(key,data,300000);return data;})();
  try{return await task;}catch(e){if(e instanceof Error&&/^(来源|当前|该|作品|图片|尚未)/.test(e.message))throw e;throw new Error('来源连接暂时失败，请稍后重试');}
 }
 function text(v:any):string{return typeof v==='string'?v:Array.isArray(v)?v.map(x=>x.v||'').join(' / '):'';}
