@@ -5,11 +5,13 @@ type Lifetime={waitUntil:(promise:Promise<unknown>)=>void};
 type Scope={origin:string;anonymous:boolean;cache?:CacheStore;lifetime:Lifetime};
 const context=new AsyncLocalStorage<Scope>();
 const revision='public-reading-v38-1';
+// These adapters never consume or forward incoming browser cookies. Account
+// adapters are deliberately absent, even when their source IDs look similar.
 const catalogSources=new Set('bangumi mangadex mangadex-en narou lnovelapi n8novel komiic manhuagui lnovel mangabz sfacg bh3 linovel kakuyomu dm5'.split(' '));
 const imageSources=new Set(['bh3','lnovelapi']);
 export function runWithPublicCache<T>(request:Request,lifetime:Lifetime,run:()=>T,cache?:CacheStore):T{
  const runtime=globalThis as typeof globalThis & {caches?:{default?:CacheStore}};
- return context.run({origin:new URL(request.url).origin,anonymous:!request.headers.has('Authorization')&&!request.headers.has('Cookie'),cache:cache??runtime.caches?.default,lifetime},run);
+ return context.run({origin:new URL(request.url).origin,anonymous:!request.headers.has('Authorization'),cache:cache??runtime.caches?.default,lifetime},run);
 }
 function usable(){const scope=context.getStore();return scope?.anonymous&&scope.cache&&typeof scope.lifetime.waitUntil==='function'?scope:undefined;}
 function enabled(source:string){return source==='bangumi'||source==='mangadex'||source==='narou'&&process.env.NAROU_ENABLED==='true'||(process.env.PUBLIC_READING_SOURCES||'').split(',').map(s=>s.trim()).includes(source);}

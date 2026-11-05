@@ -38,11 +38,11 @@ export function createSourceHealth(now=Date.now,random=Math.random){
    return data;
   }catch(error){
    const failure=sourceFailure(error);
-   const sourceFault=['connection_failed','upstream_unavailable','rate_limited','parse_changed','verification_required','access_denied','domain_changed'].includes(failure.code);
+   const sourceFault=['connection_failed','upstream_unavailable','rate_limited','parse_changed','verification_required','domain_changed'].includes(failure.code)||failure.code==='access_denied'&&failure.httpStatus===403;
    if(states.get(source)!==state||state.generation!==generation)throw error;
    if(!sourceFault){if(probing)states.delete(source);throw error;}
    state.failures++;state.last=failure;state.touched=now();state.probeUntil=0;
-   const structural=['parse_changed','verification_required','access_denied','domain_changed'].includes(failure.code);
+   const structural=['parse_changed','verification_required','domain_changed'].includes(failure.code)||failure.code==='access_denied'&&failure.httpStatus===403;
    if(structural||failure.code==='rate_limited'||state.failures>=2){
     const base=structural?300000:Math.min(300000,30000*2**Math.min(4,Math.max(0,state.failures-2)));
     state.openUntil=now()+Math.min(1800000,Math.max(failure.retryAfter?failure.retryAfter*1000:0,Math.round(base*(1+random()*0.1))));state.generation++;

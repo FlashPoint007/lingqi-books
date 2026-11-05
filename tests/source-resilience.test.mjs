@@ -29,7 +29,7 @@ test('concurrent failures open one source, cooldown grows, and only one recovery
 test('valid empty searches and missing works do not trip unrelated discovery; parse errors and 429 do',async()=>{
  let now=100;const health=createSourceHealth(()=>now,()=>0);
  for(let i=0;i<4;i++)await assert.rejects(health.run('book',async()=>{throw new SourceError('not_found','缺少作品','检查地址');}));
- assert.equal(await health.run('book',async()=>({items:[],total:0})).then(x=>x.total),0);assert.equal(health.status('book'),undefined);
+ assert.equal(await health.run('book',async()=>({items:[],total:0})).then(x=>x.total),0);assert.equal(health.status('book'),undefined);for(let i=0;i<3;i++)await health.run('restricted-work',async()=>{throw new SourceError('access_denied','单本作品受限','选择其他作品');}).catch(()=>{});assert.equal(health.status('restricted-work'),undefined);
  await health.run('parse',async()=>{throw new SourceError('parse_changed','解析失败','需要更新适配');}).catch(()=>{});assert.equal(health.status('parse').retryAfter,300);
  await health.run('quota',async()=>{throw new SourceError('rate_limited','上游限流','等待',true,429,600);}).catch(()=>{});assert.equal(health.status('quota').retryAfter,600);
  assert.equal(retryAfterSeconds('120'),120);assert.equal(retryAfterSeconds('99999'),1800);assert.equal(retryAfterSeconds('bad'),undefined);
@@ -65,8 +65,8 @@ test('validated public provider catalogs hit across requests while query, kind, 
 }));
 test('private services, authenticated requests, partial results and failures never populate public catalog cache',()=>configured(async()=>{
  const f=fixture(),load=async()=>({items:[],total:0});
- for(const source of ['bridge','maki','suwayomi','esj'])await f.run(()=>cachedPublicCatalog(source,{},load));
- for(const headers of [{Authorization:'Bearer private'},{Cookie:'session=private'}])await f.run(()=>cachedPublicCatalog('lnovelapi',{},load),headers);
+ for(const source of ['bridge','maki','suwayomi','esj'])await f.run(()=>cachedPublicCatalog(source,{},load),{Cookie:'session=private'});
+ for(const headers of [{Authorization:'Bearer private'}])await f.run(()=>cachedPublicCatalog('lnovelapi',{},load),headers);
  await f.run(()=>cachedPublicCatalog('lnovelapi',{q:'partial'},async()=>({items:[],total:0,partial:true})));
  await assert.rejects(f.run(()=>cachedPublicCatalog('lnovelapi',{q:'broken'},async()=>{throw new Error('parse failed');})));
  await f.drain();assert.equal(f.puts,0);
@@ -97,4 +97,9 @@ test('oversized, interrupted and error image responses never become successful c
 test('a stalled edge lookup cannot hold the public reading request indefinitely',()=>configured(async()=>{
  const f=fixture();f.cache.match=()=>new Promise(()=>{});
  let timer;try{const result=await Promise.race([f.run(()=>cachedPublicCatalog('lnovelapi',{q:'stalled'},async()=>({items:[],total:0}))),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('cache held reader indefinitely')),1000);})]);assert.equal(result.total,0);await f.drain();}finally{clearTimeout(timer);}
+}));
+test('browser preference/session cookies do not disable explicitly anonymous public catalogs',()=>configured(async()=>{
+ const f=fixture();let calls=0;const load=async()=>{calls++;return {items:[{id:'public:1'}],total:1};};
+ const first=await f.run(()=>cachedPublicCatalog('lnovelapi',{q:'public'},load),{Cookie:'preferences=one'});assert.equal(first.edgeCache,'MISS');await f.drain();
+ const next=await f.run(()=>cachedPublicCatalog('lnovelapi',{q:'public'},load),{Cookie:'preferences=two'});assert.equal(next.edgeCache,'HIT');assert.equal(calls,1);
 }));
