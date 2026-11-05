@@ -1,3 +1,4 @@
+import {sourceRequestSignal} from './source-health';
 import {cached,limitedBytes,requestImage,imageMimeType,assertHtmlPage} from './network';
 import {SourceError} from './source-errors';
 import type {Work,Chapter,ReadingContent} from './model';
@@ -8,7 +9,7 @@ function numeric(id:string){if(!/^\d{1,12}$/.test(id))throw new Error('漫画 ID
 function imagePath(workId:string,id?:string,index?:number){return '/api/reader-image?'+new URLSearchParams({source:'komiic',workId,...(id?{id,index:String(index)}:{kind:'cover'})});}
 function coverUrl(raw:string){const u=new URL(raw);if(u.origin!==COVER||u.username||u.password||u.hash)throw new Error('漫画封面地址无效');return u.href;}
 async function graph(query:string,variables:Record<string,unknown>={},ttl=60000):Promise<any>{return cached('ki:query:'+query+':'+JSON.stringify(variables),async()=>{
- let r:Response;try{r=await fetch(SITE+'/api/query',{method:'POST',headers:{'User-Agent':'LingqiBooks/0.3 (+https://github.com/FlashPoint007/lingqi-books)','Content-Type':'application/json',Accept:'application/json',Referer:SITE+'/'},body:JSON.stringify({query,variables}),redirect:'manual',signal:AbortSignal.timeout(15000)});}catch{throw new SourceError('connection_failed','Komiic 连接失败或超时','请稍后重试或选择其他漫画来源。',true);}
+ let r:Response;try{r=await fetch(SITE+'/api/query',{method:'POST',headers:{'User-Agent':'LingqiBooks/0.3 (+https://github.com/FlashPoint007/lingqi-books)','Content-Type':'application/json',Accept:'application/json',Referer:SITE+'/'},body:JSON.stringify({query,variables}),redirect:'manual',signal:AbortSignal.any([AbortSignal.timeout(15000),...(sourceRequestSignal()?[sourceRequestSignal()!]:[])])});}catch{throw new SourceError('connection_failed','Komiic 连接失败或超时','请稍后重试或选择其他漫画来源。',true);}
  const text=new TextDecoder().decode(await limitedBytes(r,4000000));if(!r.ok||text.startsWith('<'))assertHtmlPage(text,new URL(SITE+'/api/query'),r.status);let json:any;try{json=JSON.parse(text);}catch{throw new Error('漫画来源返回的数据无效');}if(json.errors?.length){const messages=json.errors.map((e:any)=>String(e.message)).join(' ');if(/limit|quota|too many|上限|額度|额度/i.test(messages))throw new SourceError('rate_limited','漫画来源的访客图片额度已用完','额度由来源控制，请等待恢复或选择其他来源。',true);if(/login|token|unauthor|permission/i.test(messages))throw new SourceError('login_required','漫画来源要求相应阅读权限','仅接入匿名公开章节。');const schemaHint=/^(?:Cannot query field|Unknown (?:argument|type)|Field .* (?:argument|type)|Variable .* (?:type|used))/i.test(messages)?messages.slice(0,500):'需要更新漫画来源适配。';throw new SourceError('parse_changed','Komiic 接口结构已变化',schemaHint);}if(!json.data)throw new Error('漫画来源缺少数据');return json.data;
  },ttl);}
 export function parseKiWork(raw:any):Work{

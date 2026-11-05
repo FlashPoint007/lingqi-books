@@ -5,6 +5,7 @@ import {GET as catalog} from "../app/api/catalog/route";
 import {GET as readerImage} from "../app/api/reader-image/route";
 import {GET as contentImage} from "../app/api/content-image/route";
 
+import {runWithPublicCache,cachedPublicImage} from "../lib/books/public-cache";
 import {protectReadRequest} from "../lib/books/read-protection";
 
 const worker = {
@@ -28,17 +29,17 @@ const worker = {
         },
       };
     }
-    return runWithConnectorBinding(binding, () => protectReadRequest(request, request => {
+    return runWithConnectorBinding(binding, () => runWithPublicCache(request, ctx, () => protectReadRequest(request, request => {
       // Initialize read APIs with the Worker, rather than letting an abandoned
       // first browser request own the framework's lazy route-module promise.
       if (request.method === "GET") {
         const pathname = new URL(request.url).pathname;
         if (pathname === "/api/catalog") return catalog(request);
-        if (pathname === "/api/reader-image") return readerImage(request);
+        if (pathname === "/api/reader-image") return cachedPublicImage(request, () => readerImage(request));
         if (pathname === "/api/content-image") return contentImage(request);
       }
       return handler.fetch(request, env, ctx);
-    }));
+    })));
   },
 };
 

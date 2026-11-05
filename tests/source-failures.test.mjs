@@ -4,7 +4,7 @@ import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import ts from 'typescript';
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','chinese','n8novel','komiic','source-errors','bounded-cache','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','lnovel-api','public-reading','web-novels','reader-services','bridge','availability','sources','reading-discovery','reading-probe','source-selection','reading-preferences']){
+for(const name of ['model','chinese','n8novel','komiic','source-errors','bounded-cache','source-health','network','sfacg','mangabz','manhuagui','lnovel','kakuyomu','linovel','dm5','lnovel-api','public-reading','web-novels','reader-services','bridge','availability','public-cache','sources','reading-discovery','reading-probe','source-selection','reading-preferences']){
  let source=await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8');source=source.replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
 const route=(await readFile(new URL('../app/api/catalog/route.ts',import.meta.url),'utf8')).replace(/from '\.\.\/\.\.\/\.\.\/lib\/books\/([^']+)'/g,"from './$1.mjs'");await writeFile(path.join(dir,'catalog.mjs'),ts.transpileModule(route,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
@@ -238,4 +238,8 @@ test('upstream concurrency includes a slow response body and releases on cancel'
   await new Promise(resolve=>setImmediate(resolve));assert.equal(fourthReady,false);
   await responses.pop().body.cancel();responses.push(await fourth);assert.equal(fourthReady,true);
  }finally{await Promise.all(responses.map(r=>r.body.cancel()));globalThis.fetch=original;}
+});
+test('upstream 429 keeps Retry-After for both HTML and JSON backoff',async()=>{
+ const original=globalThis.fetch;globalThis.fetch=async()=>new Response('limited',{status:429,headers:{'Retry-After':'180'}});
+ try{await assert.rejects(network.htmlPage(new URL('https://quota.fixture/html')),e=>e.code==='rate_limited'&&e.retryAfter===180);await assert.rejects(network.jsonRequest(new URL('https://quota.fixture/json')),e=>e.code==='rate_limited'&&e.retryAfter===180);}finally{globalThis.fetch=original;}
 });

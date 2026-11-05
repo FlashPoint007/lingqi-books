@@ -13,12 +13,14 @@ function work(id:string,title:string):Work{return {id:'manhuagui:'+id,source:'ma
 export function parseGuiList(html:string){
  const $=load(html),items=new Map<string,Work>();
  $('#contList a.bcover,.book-result .book-detail dt a').each((_,el)=>{
-  const a=$(el),u=new URL(a.attr('href')||'',BASE),m=u.pathname.match(/^\/comic\/(\d{1,12})\/$/),title=(a.attr('title')||a.text()).trim();
+  const a=$(el);let u:URL;try{u=new URL(a.attr('href')||'',BASE);}catch{return;}const m=u.pathname.match(/^\/comic\/(\d{1,12})\/$/),title=(a.attr('title')||a.text()).trim();
   if(u.origin===BASE&&m&&title&&!items.has(m[1]))items.set(m[1],work(m[1],title));
  });
  const hasMore=$('span.current + a[href]').length>0;
- if(!items.size&&!/没有找到|沒有找到|暂无|暫無|无相关|無相關/.test($('body').text()))throw new SourceError('parse_changed','漫画柜未返回有效作品','需要核对来源列表结构。');
- return {items:[...items.values()],hasMore,total:items.size+(hasMore?1:0)};
+ const count=$('.result-count').first().text().match(/(?:共查找到|共有)\s*(\d+)\s*部漫[画畫]/)?.[1];
+ const empty=count==='0'&&/没有查找到|沒有查找到|没有找到|沒有找到/.test($('.book-result').text());
+ if(!items.size&&!empty)throw new SourceError('parse_changed','漫画柜未返回有效作品','需要核对来源列表结构。');
+ return {items:[...items.values()],hasMore,total:count!==undefined?Math.max(items.size,Number(count)):items.size+(hasMore?1:0)};
 }
 export function parseGuiDetail(id:string,html:string){
  numeric(id);const $=load(html),title=$('.book-title h1').first().text().trim();

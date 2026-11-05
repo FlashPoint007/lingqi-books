@@ -1,15 +1,16 @@
+import {sourceRequestSignal} from './source-health';
 import {jsonRequest,requestImage,limitedBytes} from './network';
 import {BoundedDataCache} from './bounded-cache';
-import {SourceError} from './source-errors';
+import {SourceError,retryAfterSeconds} from './source-errors';
 import type {Work,Chapter} from './model';
 const UA='LingqiBooks/0.1 (https://github.com/FlashPoint007/lingqi-books)';
 const cache=new BoundedDataCache<any>(180,8*1024*1024,2*1024*1024);
 export async function upstream(url:string,body?:unknown){
  const key=url+JSON.stringify(body||'');const hit=cache.get(key);if(hit!==undefined)return hit;
- const task=(async()=>{const res=await fetch(url,{method:body?'POST':'GET',headers:{'User-Agent':UA,'Accept':'application/json',...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(12000),redirect:'manual'});
- if(!res.ok){await res.body?.cancel();throw new Error(res.status===429?'来源请求过于频繁，请稍后重试':`来源暂不可用（${res.status}）`);}
- const data=JSON.parse(new TextDecoder().decode(await limitedBytes(res,4000000)));cache.set(key,data,300000);return data;})();
- try{return await task;}catch(e){if(e instanceof Error&&/^(来源|当前|该|作品|图片|尚未)/.test(e.message))throw e;throw new Error('来源连接暂时失败，请稍后重试');}
+ const task=(async()=>{const res=await fetch(url,{method:body?'POST':'GET',headers:{'User-Agent':UA,'Accept':'application/json',...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.any([AbortSignal.timeout(12000),...(sourceRequestSignal()?[sourceRequestSignal()!]:[])]),redirect:'manual'});
+ if(!res.ok){await res.body?.cancel();if(res.status===429)throw new SourceError('rate_limited','来源请求过于频繁，请稍后重试','请等待来源额度恢复。',true,429,retryAfterSeconds(res.headers.get('Retry-After')));throw new Error(`来源暂不可用（${res.status}）`);}
+ const data=JSON.parse(new TextDecoder().decode(await limitedBytes(res,4000000)));sourceRequestSignal()?.throwIfAborted();cache.set(key,data,300000);return data;})();
+ try{return await task;}catch(e){if(e instanceof SourceError)throw e;if(e instanceof Error&&/^(来源|当前|该|作品|图片|尚未)/.test(e.message))throw e;throw new Error('来源连接暂时失败，请稍后重试');}
 }
 function text(v:any):string{return typeof v==='string'?v:Array.isArray(v)?v.map(x=>x.v||'').join(' / '):'';}
 function aliasNames(names:unknown[]){return [...new Set(names.filter((name):name is string=>typeof name==='string'&&name.trim().length>0&&name.length<=100))].slice(0,24);}

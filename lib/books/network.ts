@@ -1,5 +1,6 @@
+import {sourceRequestSignal} from './source-health';
 import {load} from 'cheerio/slim';
-import {SourceError} from './source-errors';
+import {SourceError,retryAfterSeconds} from './source-errors';
 import {BoundedDataCache} from './bounded-cache';
 const hasCredentials=(headers:Record<string,string>)=>Object.keys(headers).some(key=>/^(cookie|authorization|proxy-authorization|x-api-key|x-image-ticket)$/i.test(key));
 const UA='LingqiBooks/0.3 (+https://github.com/FlashPoint007/lingqi-books)';
@@ -13,7 +14,7 @@ async function acquire(origin:string){
 export async function limitedBytes(response:Response,max:number){const reader=response.body?.getReader();if(!reader)throw new Error('来源返回了空响应');let count=0;const chunks:Uint8Array[]=[];try{while(true){const {value,done}=await reader.read();if(done)break;count+=value.length;if(count>max){await reader.cancel();throw new Error('来源响应超过大小限制');}chunks.push(value);}}finally{reader.releaseLock();}const bytes=new Uint8Array(count);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;}
 // Only completed data can cross Worker requests. An in-flight promise belongs to
 // its request and can be abandoned when that request is canceled by the client.
-export async function cached<T>(key:string,job:()=>Promise<T>,ttl=180000):Promise<T>{const h=memo.get(key);if(h!==undefined)return h as T;const data=await job();memo.set(key,data,ttl);return data;}
+export async function cached<T>(key:string,job:()=>Promise<T>,ttl=180000):Promise<T>{const h=memo.get(key);if(h!==undefined)return h as T;sourceRequestSignal()?.throwIfAborted();const data=await job();sourceRequestSignal()?.throwIfAborted();memo.set(key,data,ttl);return data;}
 export function publicUrl(raw:string,base?:string){const u=new URL(raw,base);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.port&&!['80','443'].includes(u.port))throw new Error('来源地址无效');return u;}
 export async function request(url:URL,headers:Record<string,string>={}){
  const release=await acquire(url.origin),controller=new AbortController();
@@ -21,7 +22,7 @@ export async function request(url:URL,headers:Record<string,string>={}){
  const finish=()=>{if(finished)return;finished=true;clearTimeout(timer);release();};
  const timer=setTimeout(()=>{controller.abort();sink?.error(new SourceError('connection_failed','来源读取超时','请稍后重试。',true));void reader?.cancel().catch(()=>{}).finally(()=>{try{reader?.releaseLock();}catch{}});finish();},15000);
  try{
-  const response=await fetch(url,{headers:{'User-Agent':UA,Accept:'text/html,application/json',...headers},redirect:'manual',signal:controller.signal});
+  const response=await fetch(url,{headers:{'User-Agent':UA,Accept:'text/html,application/json',...headers},redirect:'manual',signal:sourceRequestSignal()?AbortSignal.any([controller.signal,sourceRequestSignal()!]):controller.signal});
   if(!response.body){finish();return response;}
   reader=response.body.getReader();
   const body=new ReadableStream<Uint8Array>({
@@ -48,12 +49,12 @@ export function assertHtmlPage(html:string,url:URL,status:number){
 }
 export async function htmlPage(url:URL,headers:Record<string,string>={},charset='utf-8',allowedOrigins=[url.origin]){
  const job=async()=>{let current=url;for(let i=0;i<4;i++){const r=await request(current,headers);if([301,302,303,307,308].includes(r.status)){await r.body?.cancel();const location=r.headers.get('location');if(!location)throw new SourceError('invalid_response','来源跳转缺少目标地址','需要更新来源适配。');const next=publicUrl(location,current.href);if(!allowedOrigins.includes(next.origin))throw new SourceError('domain_changed','来源已跳转到其他域名','需要确认来源的新地址及对应解析器，或配置兼容内容服务。');current=next;continue;}
- const bytes=await limitedBytes(r,3000000);let html=new TextDecoder(charset).decode(bytes);const declared=new TextDecoder().decode(bytes.slice(0,3000)).match(/charset\s*=\s*["']?([a-z0-9_-]+)/i)?.[1];if(declared&&/^(gbk|gb2312|gb18030|utf-8|big5)$/i.test(declared))html=new TextDecoder(declared).decode(bytes);assertHtmlPage(html,current,r.status);return {html,url:current.href};}throw new SourceError('domain_changed','来源跳转次数过多','需要检查来源地址或登录状态。');};
+ const bytes=await limitedBytes(r,3000000);let html=new TextDecoder(charset).decode(bytes);const declared=new TextDecoder().decode(bytes.slice(0,3000)).match(/charset\s*=\s*["']?([a-z0-9_-]+)/i)?.[1];if(declared&&/^(gbk|gb2312|gb18030|utf-8|big5)$/i.test(declared))html=new TextDecoder(declared).decode(bytes);try{assertHtmlPage(html,current,r.status);}catch(error){if(error instanceof SourceError&&r.status===429)error.retryAfter=retryAfterSeconds(r.headers.get('Retry-After'));throw error;}return {html,url:current.href};}throw new SourceError('domain_changed','来源跳转次数过多','需要检查来源地址或登录状态。');};
  // Authenticated responses must never share the anonymous page cache.
  return hasCredentials(headers)?job():cached('html:'+url.href,job);
 }
 export async function jsonRequest(url:URL,headers:Record<string,string>={}){
- const load=async()=>{const r=await request(url,headers);if(!r.ok){await r.body?.cancel();throw new Error(r.status===401||r.status===403?'服务鉴权失败，请检查服务端配置':`服务暂不可用（${r.status}）`);}try{return JSON.parse(new TextDecoder().decode(await limitedBytes(r,4000000)));}catch{throw new Error('服务返回的数据无效');}};
+ const load=async()=>{const r=await request(url,headers);if(!r.ok){await r.body?.cancel();if(r.status===429)throw new SourceError('rate_limited','来源限制了请求频率','请等待来源额度恢复。',true,429,retryAfterSeconds(r.headers.get('Retry-After')));throw new Error(r.status===401||r.status===403?'服务鉴权失败，请检查服务端配置':`服务暂不可用（${r.status}）`);}try{return JSON.parse(new TextDecoder().decode(await limitedBytes(r,4000000)));}catch{throw new Error('服务返回的数据无效');}};
  return hasCredentials(headers)?load():cached('json:'+url.href,load,60000);
 }
 export function imageMimeType(b:Uint8Array){if(b[0]===255&&b[1]===216&&b[2]===255)return 'image/jpeg';if(b[0]===137&&b[1]===80&&b[2]===78&&b[3]===71)return 'image/png';const h=new TextDecoder('latin1').decode(b.slice(0,16));if(/^GIF8[79]a/.test(h))return 'image/gif';if(h.startsWith('RIFF')&&h.slice(8,12)==='WEBP')return 'image/webp';if(h.slice(4,8)==='ftyp'&&/^avi[fs]/.test(h.slice(8,12)))return 'image/avif';throw new SourceError('invalid_response','来源未返回有效图片','请检测图片来源，或选择其他阅读版本。');}

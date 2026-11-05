@@ -6,7 +6,7 @@ import ts from 'typescript';
 import LZString from 'lz-string';
 
 const dir=await mkdtemp(new URL('../.reader-test-',import.meta.url));
-for(const name of ['model','source-errors','bounded-cache','network','manhuagui','lnovel']){
+for(const name of ['model','source-errors','bounded-cache','source-health','network','manhuagui','lnovel']){
  const source=(await readFile(new URL('../lib/books/'+name+'.ts',import.meta.url),'utf8')).replace('../../services/content-bridge/richtext.mjs','../services/content-bridge/richtext.mjs').replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(path.join(dir,name+'.mjs'),ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText);
 }
@@ -44,4 +44,11 @@ test('reader image endpoints validate chapter manifests and indices before upstr
  try{const c=await ln.lnContent('9001~9002','9001');assert.match(c.images[0],/^\/api\/reader-image\?/);assert.equal((await ln.lnImage(new URLSearchParams({workId:'9001',id:'9001~9002',index:'0'}))).status,200);await assert.rejects(ln.lnImage(new URLSearchParams({workId:'9001',id:'9001~9002',index:'2'})),/索引/);
  const g=await gui.guiContent('9001~9002','9001');assert.equal(g.images.length,2);assert.equal((await gui.guiImage(new URLSearchParams({workId:'9001',id:'9001~9002',index:'1'}))).status,200);const before=calls.length;await assert.rejects(gui.guiImage(new URLSearchParams({workId:'9001',id:'9001~9002',index:'99'})),/索引/);await assert.rejects(gui.guiContent('9001~9999','9001'),/目录/);assert.equal(calls.length,before);
  }finally{globalThis.fetch=original;}
+});
+test('MangaGui recognizes its explicit zero-result search without hiding real parser failures',()=>{
+ const empty='<title>样本搜索</title><div class="book-result"><div class="result-count">搜索“原创样本”共查找到 <strong>0</strong> 部漫画</div><p>很抱歉，没有查找到与“原创样本”相关的漫画</p></div>';
+ assert.deepEqual(gui.parseGuiList(empty),{items:[],hasMore:false,total:0});
+ const found='<div class="book-result"><div class="result-count">共查找到 <strong>12</strong> 部漫画</div><div class="book-detail"><dl><dt><a href="/comic/9001/" title="原创样本">原创样本</a></dt></dl></div><span class="current">1</span><a href="/s/sample_p2.html">2</a></div>';
+ const list=gui.parseGuiList(found);assert.equal(list.items[0].title,'原创样本');assert.equal(list.total,12);assert.equal(list.hasMore,true);
+ assert.throws(()=>gui.parseGuiList('<div class="book-result">接口发生变化</div>'),e=>e.code==='parse_changed');
 });
