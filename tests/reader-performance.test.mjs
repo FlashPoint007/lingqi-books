@@ -114,3 +114,32 @@ test('corrupt stored progress cannot override valid history or crash chapter res
  try{assert.deepEqual(library.loadProgress(),{good:valid,current:{...valid,page:9}});}
  finally{if(old)Object.defineProperty(globalThis,'localStorage',old);else delete globalThis.localStorage;}
 });
+
+function temporaryLibrary(run){
+ const old=Object.getOwnPropertyDescriptor(globalThis,'localStorage'),storage=new Map();let fail=false;
+ Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{get length(){return storage.size;},key:index=>[...storage.keys()][index],getItem:key=>storage.get(key)??null,setItem:(key,value)=>{if(fail)throw new Error('QuotaExceededError');storage.set(key,value);}}});
+ try{return run(storage,()=>{fail=true;});}finally{if(old)Object.defineProperty(globalThis,'localStorage',old);else delete globalThis.localStorage;}
+}
+const backupWork={id:'komiic:123',source:'komiic',sourceId:'123',title:'原创备份测试',kind:'manga',originalTitle:'',cover:'',summary:'',author:'',tags:[],url:'',language:'',readable:true};
+const backupProgress={chapter:0,page:12,label:'测试章',time:100,mangaChapter:{id:'123~456',title:'测试章',number:'1',language:'zh',groups:[],pages:30},position:{key:'komiic:123:123~456',ratio:.5,anchor:'image-12',offset:.1},work:backupWork};
+test('version 2 backup roundtrip restores shelf and removed-book history without TXT bodies',()=>{
+ const file=temporaryLibrary(()=>{library.storeShelfItem(backupWork,false);library.storeProgress(backupWork.id,backupProgress);library.storeShelfItem({...backupWork,id:'komiic:124',sourceId:'124'},true);library.storeProgress('komiic:124',{...backupProgress,work:{...backupWork,id:'komiic:124',sourceId:'124'},position:undefined});return library.exportLibraryBackup();});
+ temporaryLibrary(()=>{
+  const backup=library.parseLibraryBackup(file);assert.deepEqual(library.importLibraryBackup(backup),{added:1,updated:2});
+  assert.equal(library.loadShelf().length,1);assert.equal(library.loadHistory().length,2);assert.equal(library.loadProgress()[backupWork.id].page,12);assert.equal(library.loadProgress()[backupWork.id].position.anchor,'image-12');
+  assert.deepEqual(library.importLibraryBackup(backup),{added:0,updated:0});
+  library.storeShelfItem(backupWork,true);assert.equal(library.loadShelf().length,0);assert.equal(library.loadHistory().length,2);
+ });
+});
+test('backup merge preserves newer current progress and fails atomically on storage quota',()=>temporaryLibrary((storage,fail)=>{
+ library.storeProgress(backupWork.id,{...backupProgress,time:200,page:20});
+ const data=library.parseLibraryBackup(JSON.stringify({version:2,shelf:[backupWork],progress:{[backupWork.id]:backupProgress}}));
+ library.importLibraryBackup(data);assert.equal(library.loadProgress()[backupWork.id].page,20);
+ const before=[...storage];fail();assert.throws(()=>library.importLibraryBackup(data),/Quota/);assert.deepEqual([...storage],before);
+}));
+test('backup validation rejects unsupported versions, mismatched identities and unsafe records',()=>{
+ for(const data of [{version:1,shelf:[],progress:{}},{version:2,shelf:[{...backupWork,id:'other:123'}],progress:{}},{version:2,shelf:[backupWork],progress:{[backupWork.id]:{...backupProgress,page:-1}}},{version:2,shelf:[],progress:{['__proto__']:backupProgress}}])assert.throws(()=>library.parseLibraryBackup(JSON.stringify(data)));
+ assert.throws(()=>library.parseLibraryBackup('not json'));
+ const parsed=library.parseLibraryBackup(JSON.stringify({version:2,shelf:[{...backupWork,url:'javascript:alert(1)',cover:'//evil.test/image'}],progress:{}}));
+ assert.equal(parsed.shelf[0].url,'');assert.equal(parsed.shelf[0].cover,'');
+});

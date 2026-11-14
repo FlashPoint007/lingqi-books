@@ -111,7 +111,7 @@ Implemented protections include instance-local rate limits, concurrency/body bud
 
 - Work identity is `source:id`, not its title. Same-title works, media types and volumes are not silently merged.
 - Shelf, history and preferences remain in the current browser. Clearing site data removes records and imported text.
-- JSON export excludes local text. A shelf-JSON import UI and cross-device sync are not currently available.
+- Version 2 JSON backups can be merged through Restore backup on the shelf, preserving existing entries and newer progress. Backups exclude local TXT bodies and reading preferences. Account-based automatic cross-device sync is not implemented.
 - Image requests are restricted to source catalogs or allowed image hosts; there is no open proxy.
 - External material is rendered as text/image blocks, not executable upstream HTML or third-party plugin scripts.
 
