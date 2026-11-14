@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="540" viewBox="0 0 1440 540" role="img" aria-labelledby="title desc">
+<title id="title">零柒书境 · Lingqi Books</title><desc id="desc">Editorial book illustration in warm ivory, sage green and terracotta. A quiet place for light novels and manga.</desc>
+<defs><pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#d5d7c9" stroke-opacity=".35"/></pattern></defs>
+<rect width="1440" height="540" rx="28" fill="#f4f1e8"/><rect width="1440" height="540" rx="28" fill="url(#grid)"/>
+<circle cx="1150" cy="230" r="260" fill="#e5e9db"/><circle cx="1150" cy="230" r="215" fill="none" stroke="#b1baa2"/>
+<path d="M64 70h44m-22-22v44" stroke="#677456" stroke-width="2"/>
+<text x="128" y="78" fill="#617052" font-family="Arial,sans-serif" font-size="18" letter-spacing="4">ONE MORE CHAPTER</text>
+<text x="64" y="200" fill="#253a2c" font-family="'Noto Serif CJK SC','Songti SC',serif" font-size="76" font-weight="600">零柒书境</text>
+<text x="68" y="253" fill="#68765f" font-family="Georgia,serif" font-size="38">Lingqi Books</text>
+<text x="68" y="322" fill="#465441" font-family="'Noto Sans CJK SC',Arial,sans-serif" font-size="24">把日常，留在书页之外。</text>
+<text x="68" y="360" fill="#6d7667" font-family="Arial,sans-serif" font-size="21">A quiet space for light novels, manga, and you.</text>
+<path d="M68 406H650" stroke="#b5bba9"/>
+<text x="68" y="448" fill="#647258" font-family="Arial,sans-serif" font-size="16" letter-spacing="3">DISCOVER  /  COLLECT  /  READ</text>
+<g transform="translate(850 135) rotate(-12 100 140)"><rect x="10" y="12" width="178" height="266" rx="8" fill="#263e31" opacity=".13"/><rect width="178" height="266" rx="8" fill="#879677"/><path d="M17 0V266" stroke="#637654" stroke-width="4"/><rect x="38" y="36" width="105" height="190" fill="none" stroke="#d9dfcb"/><circle cx="91" cy="111" r="32" fill="#d8dfc8"/><path d="M59 157L93 119 126 157Z" fill="#546c4c"/><text x="43" y="204" fill="#f6f4e9" font-family="Georgia,serif" font-size="15">THE NEXT PAGE</text></g>
+<g transform="translate(1050 107) rotate(11 100 150)"><rect x="10" y="12" width="190" height="290" rx="8" fill="#263e31" opacity=".13"/><rect width="190" height="290" rx="8" fill="#bf8169"/><path d="M17 0V290" stroke="#a86751" stroke-width="4"/><text x="42" y="67" fill="#fff2de" font-family="Georgia,serif" font-size="25">STORIES</text><text x="42" y="94" fill="#fff2de" font-family="Georgia,serif" font-size="20">CONTINUE.</text><path d="M40 205Q92 152 150 205M40 221Q92 168 150 221" fill="none" stroke="#f4dcc3" stroke-width="3"/><circle cx="96" cy="158" r="18" fill="#f4dcc3"/><text x="42" y="263" fill="#fff2de" font-family="Arial,sans-serif" font-size="13" letter-spacing="2">LINGQI / 07</text></g>
+<path d="M1300 410h30m-15-15v30" stroke="#bf8169" stroke-width="2"/><text x="1000" y="480" fill="#617052" font-family="Arial,sans-serif" font-size="14" letter-spacing="3">A LITTLE ESCAPE, A NEW WORLD</text>
+</svg>
