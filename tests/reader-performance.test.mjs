@@ -90,3 +90,27 @@ test('an interrupted search retains delivered partial results and reports unfini
  globalThis.fetch=async()=>new Response(JSON.stringify({items:[{id:'ok:1'}],total:1,statuses:[],pendingSources:['slow']})+'\n');
  try{await assert.rejects(searchCatalog({source:'readable'},new AbortController().signal,data=>updates.push(data)),/部分来源/);assert.equal(updates[0].items.length,1);}finally{globalThis.fetch=original;}
 });
+
+
+test('scroll manga history stores the visible page instead of a stale page-mode cursor',()=>{
+ assert.equal(library.mangaReadingPage({key:'chapter',ratio:.5,anchor:'image-12'},30,0),12);
+ assert.equal(library.mangaReadingPage({key:'chapter',ratio:1,anchor:'image-99'},30,0),29);
+ assert.equal(library.mangaReadingPage(undefined,30,7),7);
+ assert.equal(library.mangaReadingPage({key:'chapter',ratio:0,anchor:'paragraph-8'},30,3),3);
+ assert.equal(library.mangaReadingPage(undefined,0,Infinity),0);
+});
+test('corrupt stored progress cannot override valid history or crash chapter resume',()=>{
+ const old=Object.getOwnPropertyDescriptor(globalThis,'localStorage');
+ const valid={chapter:2,page:5,time:100,label:'第三章'};
+ const storage=new Map([
+  ['lq-progress',JSON.stringify({good:valid,nullEntry:null,fraction:{...valid,chapter:.5},overflow:{...valid,time:1e100}})],
+  ['lq-progress:work:good','null'],
+  ['lq-progress:work:bad',JSON.stringify({...valid,page:-1})],
+  ['lq-progress:work:current',JSON.stringify({...valid,page:9})],
+ ]);
+ Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{
+  get length(){return storage.size;},key:index=>[...storage.keys()][index],getItem:key=>storage.get(key)??null,
+ }});
+ try{assert.deepEqual(library.loadProgress(),{good:valid,current:{...valid,page:9}});}
+ finally{if(old)Object.defineProperty(globalThis,'localStorage',old);else delete globalThis.localStorage;}
+});

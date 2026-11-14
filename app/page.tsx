@@ -14,7 +14,7 @@ import {NovelIllustration} from '../components/novel-illustration';
 import type {Work,Chapter,Catalog,ContentBlock} from '../lib/books/model';
 import {splitText} from '../lib/books/model';
 import type {ReadingCandidate} from '../lib/books/reading-discovery';
-import {loadShelf,loadProgress,loadHistory,readingHistory,libraryStorageKey,storeProgress,storeShelfItem,type Progress} from '../lib/books/browser-library';
+import {loadShelf,loadProgress,loadHistory,readingHistory,libraryStorageKey,mangaReadingPage,storeProgress,storeShelfItem,type Progress} from '../lib/books/browser-library';
 import {saveBook,getBook,type LocalBook} from '../lib/books/local';
 const sourceNames:Record<string,string>={bangumi:'Bangumi',mangadex:'MangaDex','mangadex-en':'MangaDex·英文日漫',lnovelapi:'lnovel·日轻中文译文',narou:'なろう',local:'本地书籍',bridge:'其他插件',wenku8:'轻小说文库',bilinovel:'哔哩轻小说·繁体',esj:'ESJ Zone',masiro:'真白萌',suwayomi:'Suwayomi',maki:'Maki',sfacg:'SF轻小说·中文原创',bh3:'崩坏3官方漫画',mangabz:'MangaBz 中文漫画',manhuagui:'漫画柜·中文日漫',lnovel:'轻小说百科·繁体日轻',n8novel:'无限轻小说·日轻繁中',komiic:'Komiic·繁中漫画',linovel:'轻之文库·中文原创',kakuyomu:'Kakuyomu·日文原文',dm5:'动漫屋·中文日漫'};
 const onlineSources=['mangadex','mangadex-en','lnovelapi','kakuyomu','linovel','dm5','n8novel','komiic','manhuagui','lnovel','mangabz','sfacg','bh3','bridge','wenku8','bilinovel','esj','masiro','suwayomi','maki'];
@@ -171,7 +171,7 @@ export default function Home(){
   if(!reader)return;
   const id=reader.work.id;
   const entry:Progress={
-   chapter:reader.local?localChapter:0,page:imagePage,label:reader.local?reader.local.chapters[localChapter]?.title:reader.chapter!.title,
+   chapter:reader.local?localChapter:0,page:reader.chapter&&layout==='scroll'?mangaReadingPage(position,images.length,imagePage):imagePage,label:reader.local?reader.local.chapters[localChapter]?.title:reader.chapter!.title,
    time:Date.now(),mangaChapter:reader.chapter,novelChapterId:remoteNovelChapter,position,work:reader.work,
   };
   const next={...progressRef.current,[id]:entry};

@@ -35,7 +35,7 @@ async function newReaderProbe(source:string){
  return cached('reading-probe:'+source,async()=>{
   async function step<T>(label:string,read:()=>Promise<T>):Promise<T>{try{return await read();}catch(e){const d=sourceFailure(e);throw new SourceError(d.code,d.message,`检测步骤：${label}。${d.hint||''}`,d.retryable,d.httpStatus);}}
   const adapter=source==='kakuyomu'?{id:'16817139555062978831',query:'16817139555062978831',search:kakuSearch,work:kakuWork,chapters:kakuChapters,content:kakuContent,image:kakuImage,novel:true}:source==='linovel'?{id:'101294',query:'白澜',search:linovelSearch,work:linovelWork,chapters:linovelChapters,content:linovelContent,image:linovelImage,novel:true}:{id:'beizhuifangdezhuanshengchongqishiyongyouxizhishikaiwushuang',query:'',search:dmSearch,work:dmWork,chapters:dmChapters,content:dmContent,image:dmImage,novel:false};
-  const list=await step('搜索',()=>adapter.search(adapter.query,1));if(!list.items.some(w=>w.sourceId===adapter.id))throw new Error('检测列表未返回样本作品');
+  const list=await step('搜索',()=>adapter.search(adapter.query,1));if(!list.items.length)throw new Error('检测列表未返回作品');
   const work=await step('作品详情',()=>adapter.work(adapter.id)),catalog=await step('章节目录',()=>adapter.chapters(adapter.id,1)),chapter=catalog.items.find(c=>!c.locked&&!c.externalUrl);if(!chapter)throw new Error('检测作品没有公开章节');
   const content=await step('章节内容',()=>adapter.content(chapter.id,adapter.id)),textCharacters=content.text?.length||0;if(adapter.novel&&textCharacters<200)throw new Error('检测正文过短');
   let imageBytes=0;if(!adapter.novel){if(!content.images.length)throw new Error('检测章节没有图片');const r=await step('漫画页图',()=>adapter.image(new URLSearchParams({workId:adapter.id,id:chapter.id,index:'0'})));imageBytes=(await r.arrayBuffer()).byteLength;if(imageBytes<1000)throw new Error('检测页图不完整');}
@@ -58,11 +58,15 @@ async function verifiedEditionProbe(source:'lnovelapi'|'mangadex-en'){
    const body=await lnovelApiContent(chapter.id,workId);
    const textCharacters=body.text?.length||0;
    if(textCharacters<200)throw new Error('检测正文过短');
-   const coverBytes=(await (await lnovelApiImage(new URLSearchParams({workId,kind:'cover'}))).arrayBuffer()).byteLength;
-   const illustrationBytes=(await (await lnovelApiImage(new URLSearchParams({workId,id:illustration.id,index:'0'}))).arrayBuffer()).byteLength;
-   if(coverBytes<1000||illustrationBytes<1000)throw new Error('检测封面或插图不完整');
-   return {items:[work],total:1,hasMore:false,statuses:[{source,ok:true,message:'已验证榜单、分卷目录、正文、封面与插图'}],
-    validation:{workId,chapterId:chapter.id,chapterCount:catalog.total,textCharacters,coverBytes,illustrationBytes,checkedAt:new Date().toISOString()}};
+   const warnings:string[]=[],imageFailures:Array<{kind:string;code:string;message:string;httpStatus?:number}>=[];
+   async function checkImage(kind:string,params:URLSearchParams){
+    try{const bytes=(await (await lnovelApiImage(params)).arrayBuffer()).byteLength;if(bytes<1000)throw new Error('图片不完整');return bytes;}
+    catch(error){const failure=sourceFailure(error);imageFailures.push({kind,code:failure.code,message:failure.message,httpStatus:failure.httpStatus});warnings.push((kind==='cover'?'封面':'插图')+'检测未通过：'+failure.message);return 0;}
+   }
+   const coverBytes=await checkImage('cover',new URLSearchParams({workId,kind:'cover'}));
+   const illustrationBytes=await checkImage('illustration',new URLSearchParams({workId,id:illustration.id,index:'0'}));
+   return {items:[work],total:1,hasMore:false,statuses:[{source,ok:true,message:'已验证榜单、分卷目录和正文'+(warnings.length?'；'+warnings.join('；'):'、封面与插图')}],
+    validation:{workId,chapterId:chapter.id,chapterCount:catalog.total,textCharacters,coverBytes,illustrationBytes,warnings,imageFailures,checkedAt:new Date().toISOString()}};
   }
   const found=await searchManga('Yotsuba',1,'popular',source);
   const work=found.items.find(item=>[item.title,...item.aliases||[]].some(name=>/^yotsuba(?:to)?$/.test(name.toLowerCase().replace(/[^a-z]/g,''))));

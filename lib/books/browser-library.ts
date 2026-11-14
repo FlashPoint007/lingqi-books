@@ -42,15 +42,24 @@ export function storeShelfItem(work:Work,remove:boolean){
  // A tombstone also hides items loaded from an earlier version's shelf.
  localStorage.setItem(SHELF_ITEM+work.id,JSON.stringify({work:remove?null:work,lastWork:work,time:Date.now()}));
 }
+function isProgress(value:unknown):value is Progress{
+ if(!value||typeof value!=='object')return false;
+ const entry=value as Progress;
+ return Number.isFinite(entry.time)&&Number.isFinite(new Date(entry.time).getTime())
+  &&Number.isInteger(entry.chapter)&&entry.chapter>=0&&Number.isInteger(entry.page)&&entry.page>=0
+  &&typeof entry.label==='string';
+}
 export function loadProgress():Record<string,Progress>{
  const legacy=read(PROGRESS);
- const progress=legacy&&typeof legacy==='object'&&!Array.isArray(legacy)?legacy:{};
- const current=items(PROGRESS_ITEM).filter((entry):entry is [string,Progress]=>{
-  const value=entry[1];
-  return !!value&&typeof value==='object'&&'time' in value&&typeof value.time==='number'
-   &&'chapter' in value&&typeof value.chapter==='number'&&'page' in value&&typeof value.page==='number';
- });
- return {...progress,...Object.fromEntries(current)};
+ const previous=legacy&&typeof legacy==='object'&&!Array.isArray(legacy)?Object.entries(legacy):[];
+ // Invalid records must not replace a valid legacy entry or reach resume logic.
+ return Object.fromEntries([...previous,...items(PROGRESS_ITEM)].filter(([,value])=>isProgress(value)));
+}
+/** Scroll readers track their visible image anchor, not the page-mode cursor. */
+export function mangaReadingPage(position:ReadingPosition|undefined,count:number,fallback:number){
+ const match=position?.anchor?.match(/^image-(\d+)$/);
+ const index=match?Number(match[1]):fallback;
+ return Math.max(0,Math.min(Math.max(0,count-1),Number.isSafeInteger(index)?index:0));
 }
 export function storeProgress(id:string,entry:Progress){
  localStorage.setItem(PROGRESS_ITEM+id,JSON.stringify(entry));
