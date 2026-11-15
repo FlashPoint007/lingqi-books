@@ -9,6 +9,7 @@ export type Progress={
 };
 export type HistoryItem={work:Work;progress:Progress};
 
+const BOOKMARK='lq-bookmark:';
 const SHELF='lq-shelf', PROGRESS='lq-progress', IMPORT='lq-library-import';
 const SHELF_ITEM=SHELF+':work:', PROGRESS_ITEM=PROGRESS+':work:';
 
@@ -107,7 +108,21 @@ const source=z.enum(['bangumi','mangadex','narou','local','bridge','wenku8','bil
 const workSchema=z.object({id:short,source,sourceId:short,title:label.min(1),originalTitle:label.default(''),aliases:z.array(label).max(100).optional(),kind:z.enum(['novel','manga']),cover:safeUrl.default(''),coverFallback:safeUrl.optional(),summary:label.default(''),author:label.default(''),tags:z.array(short).max(100).default([]),score:z.number().finite().optional(),votes:z.number().finite().optional(),url:safeUrl.default(''),language:short.default(''),readable:z.boolean().default(false),provider:short.optional(),updated:short.optional()}).refine(work=>work.id===work.source+':'+work.sourceId,'作品来源 ID 不匹配');
 const chapterSchema=z.object({id:short,title:label,number:short.default(''),language:short.default(''),groups:z.array(z.object({name:label,url:safeUrl})).max(100).default([]),externalUrl:safeUrl.optional(),pages:z.number().int().nonnegative().max(100000).default(0),locked:z.boolean().optional()});
 const progressSchema=z.object({chapter:z.number().int().nonnegative().max(100000),page:z.number().int().nonnegative().max(100000),label,time:z.number().finite().nonnegative().refine(value=>Number.isFinite(new Date(value).getTime())&&value<=Date.now()+300000),work:workSchema.optional(),mangaChapter:chapterSchema.optional(),novelChapterId:short.optional(),position:z.object({key:short,ratio:z.number().min(0).max(1),anchor:short.regex(/^[a-z]+-\d+$/).optional(),offset:z.number().min(0).max(1).optional()}).optional()});
-type Imported={shelf:Array<{work:Work;time:number}>;progress:Record<string,Progress>};
+const bookmarkSchema=z.object({id:z.string().uuid(),workId:short,chapterId:short,chapterTitle:label,note:z.string().max(500),position:z.object({key:short,ratio:z.number().min(0).max(1),anchor:short.regex(/^[a-z]+-\d+$/).optional(),offset:z.number().min(0).max(1).optional()}),page:z.number().int().nonnegative().max(100000).optional(),time:z.number().finite().nonnegative(),deleted:z.boolean().optional()}).refine(value=>value.position.key.startsWith(value.workId+':'));
+export type ReadingBookmark=z.infer<typeof bookmarkSchema>;
+export function loadBookmarks(workId?:string):ReadingBookmark[]{
+ const merged=new Map<string,ReadingBookmark>();
+ for(const raw of [...(readImport().bookmarks||[]),...items(BOOKMARK).map(([,value])=>value)]){
+  const parsed=bookmarkSchema.safeParse(raw);if(!parsed.success)continue;
+  const entry=parsed.data,previous=merged.get(entry.id);if(!previous||entry.time>=previous.time)merged.set(entry.id,entry);
+ }
+ return [...merged.values()].filter(entry=>!entry.deleted&&(!workId||entry.workId===workId)).sort((a,b)=>b.time-a.time);
+}
+export function storeBookmark(entry:ReadingBookmark){
+ const value=bookmarkSchema.parse(entry);
+ localStorage.setItem(BOOKMARK+value.id,JSON.stringify(value));
+}
+type Imported={shelf:Array<{work:Work;time:number}>;progress:Record<string,Progress>;bookmarks?:ReadingBookmark[]};
 function readImport():Imported{
  const value=read(IMPORT) as Imported|null;
  return value&&Array.isArray(value.shelf)&&value.progress&&typeof value.progress==='object'?value:{shelf:[],progress:{}};
@@ -116,7 +131,7 @@ export function parseLibraryBackup(text:string){
  if(text.length>10*1024*1024)throw new Error('备份超过 10 MB 限制');
  let raw:unknown;try{raw=JSON.parse(text);}catch{throw new Error('不是有效的 JSON 备份');}
  if(raw&&typeof raw==='object'&&'progress' in raw&&raw.progress&&typeof raw.progress==='object'&&Object.keys(raw.progress).some(key=>['__proto__','constructor','prototype'].includes(key)))throw new Error('备份中含无效作品标识');
- const schema=z.object({version:z.literal(2),shelf:z.array(workSchema).max(2000),progress:z.record(progressSchema).refine(value=>Object.keys(value).length<=2000),history:z.array(z.object({work:workSchema,progress:progressSchema})).max(2000).default([])});
+ const schema=z.object({version:z.literal(2),shelf:z.array(workSchema).max(2000),progress:z.record(progressSchema).refine(value=>Object.keys(value).length<=2000),history:z.array(z.object({work:workSchema,progress:progressSchema})).max(2000).default([]),bookmarks:z.array(bookmarkSchema).max(10000).default([])});
  const parsed=schema.safeParse(raw);
  if(!parsed.success)throw new Error('备份格式、版本或阅读记录无效，请选择本站导出的版本 2 备份');
  const data=parsed.data,known=new Map([...data.shelf,...data.history.map(item=>item.work)].map(work=>[work.id,work]));
@@ -126,7 +141,7 @@ export function parseLibraryBackup(text:string){
   if(!work||work.id!==id||entry.position&&!entry.position.key.startsWith(id+':'))throw new Error('备份中的作品或进度身份不匹配');
   if(!progress[id]||progress[id].time<entry.time)progress[id]={...entry,work};
  }
- return {shelf:[...new Map(data.shelf.map(work=>[work.id,work])).values()],progress};
+ return {shelf:[...new Map(data.shelf.map(work=>[work.id,work])).values()],progress,bookmarks:data.bookmarks};
 }
 export function importLibraryBackup(backup:ReturnType<typeof parseLibraryBackup>){
  const previous=readImport(),shelf=new Map(previous.shelf.map(entry=>[entry.work.id,entry])),currentShelf=new Set(loadShelf().map(work=>work.id)),currentProgress=loadProgress();
@@ -134,10 +149,12 @@ export function importLibraryBackup(backup:ReturnType<typeof parseLibraryBackup>
  for(const work of backup.shelf)if(!currentShelf.has(work.id)){shelf.set(work.id,{work,time});added++;}
  const progress={...previous.progress};
  for(const [id,entry] of Object.entries(backup.progress))if(!currentProgress[id]||entry.time>currentProgress[id].time){progress[id]=entry;updated++;}
- localStorage.setItem(IMPORT,JSON.stringify({shelf:[...shelf.values()],progress}));
+ const bookmarks=new Map((previous.bookmarks||[]).map(entry=>[entry.id,entry]));
+ for(const entry of backup.bookmarks||[])if(!bookmarks.has(entry.id)||entry.time>bookmarks.get(entry.id)!.time)bookmarks.set(entry.id,entry);
+ localStorage.setItem(IMPORT,JSON.stringify({shelf:[...shelf.values()],progress,bookmarks:[...bookmarks.values()]}));
  return {added,updated};
 }
 export function exportLibraryBackup(){
  const shelf=loadShelf(),progress=loadProgress(),history=loadHistory(progress);
- return JSON.stringify({version:2,shelf,progress,history},null,2);
+ return JSON.stringify({version:2,shelf,progress,history,bookmarks:loadBookmarks()},null,2);
 }

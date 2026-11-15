@@ -143,3 +143,20 @@ test('backup validation rejects unsupported versions, mismatched identities and 
  const parsed=library.parseLibraryBackup(JSON.stringify({version:2,shelf:[{...backupWork,url:'javascript:alert(1)',cover:'//evil.test/image'}],progress:{}}));
  assert.equal(parsed.shelf[0].url,'');assert.equal(parsed.shelf[0].cover,'');
 });
+
+const bookmark={id:'123e4567-e89b-42d3-a456-426614174000',workId:'komiic:123',chapterId:'chapter-1',chapterTitle:'第一章',note:'记住这一页 <script>nothing</script>',position:{key:'komiic:123:chapter-1',ratio:.4,anchor:'image-12',offset:.2},page:12,time:100};
+test('reading bookmarks persist exact positions, remain work scoped and backup roundtrip',()=>{
+ const file=temporaryLibrary(()=>{library.storeBookmark(bookmark);assert.equal(library.loadBookmarks('komiic:123')[0].page,12);assert.deepEqual(library.loadBookmarks('komiic:124'),[]);return library.exportLibraryBackup();});
+ temporaryLibrary(()=>{library.importLibraryBackup(library.parseLibraryBackup(file));assert.deepEqual(library.loadBookmarks(),[bookmark]);});
+});
+test('bookmark removal and undo preserve unrelated data and newer local records beat old imports',()=>temporaryLibrary(()=>{
+ library.storeProgress(backupWork.id,backupProgress);library.storeBookmark(bookmark);
+ library.storeBookmark({...bookmark,deleted:true,time:200});assert.equal(library.loadBookmarks().length,0);
+ library.importLibraryBackup(library.parseLibraryBackup(JSON.stringify({version:2,shelf:[],progress:{},bookmarks:[bookmark]})));assert.equal(library.loadBookmarks().length,0);
+ library.storeBookmark({...bookmark,deleted:false,time:300});assert.equal(library.loadBookmarks().length,1);assert.equal(library.loadProgress()[backupWork.id].page,12);
+}));
+test('bookmark validation and failed writes cannot corrupt existing library',()=>temporaryLibrary((storage,fail)=>{
+ library.storeBookmark(bookmark);const before=[...storage];
+ for(const bad of [{...bookmark,note:'x'.repeat(501)},{...bookmark,page:-1},{...bookmark,position:{key:'other:chapter',ratio:.2}},{...bookmark,id:'__proto__'}])assert.throws(()=>library.storeBookmark(bad));
+ assert.deepEqual([...storage],before);fail();assert.throws(()=>library.storeBookmark({...bookmark,note:'changed'}),/Quota/);assert.deepEqual([...storage],before);
+}));
